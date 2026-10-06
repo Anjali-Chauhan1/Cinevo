@@ -1,101 +1,125 @@
-import Image from "next/image";
+import Link from "next/link";
+import { prisma } from "@/lib/db";
+import { syncEpisodeStatus } from "@/lib/episodes";
+import { EpisodeCard } from "@/components/EpisodeCard";
+import { EpisodeStatus } from "@/lib/constants";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+async function getHomeData() {
+  const rawEpisodes = await prisma.episode.findMany({
+    where: { status: { in: ["PUBLIC", "EARLY_ACCESS", "PREMIERING", "SCHEDULED"] } },
+    include: { creator: true, popularity: true },
+    orderBy: { createdAt: "desc" },
+    take: 24,
+  });
+  const episodes = await Promise.all(rawEpisodes.map((e) => syncEpisodeStatus(e).then((s) => ({ ...e, status: s.status }))));
+
+  const live = episodes.filter((e) => e.status === EpisodeStatus.PREMIERING);
+  const upcoming = episodes.filter((e) => e.status === EpisodeStatus.SCHEDULED).slice(0, 6);
+  const trending = [...episodes]
+    .filter((e) => e.popularity)
+    .sort((a, b) => (b.popularity?.score ?? 0) - (a.popularity?.score ?? 0))
+    .slice(0, 8);
+  const freshPublic = episodes
+    .filter((e) => e.status === EpisodeStatus.PUBLIC || e.status === EpisodeStatus.EARLY_ACCESS)
+    .slice(0, 8);
+
+  const creators = await prisma.creator.findMany({
+    where: { verificationStatus: "APPROVED" },
+    take: 6,
+    orderBy: { createdAt: "desc" },
+  });
+
+  return { live, upcoming, trending, freshPublic, creators };
+}
+
+export default async function HomePage() {
+  const { live, upcoming, trending, freshPublic, creators } = await getHomeData();
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="space-y-12">
+      <section className="card relative overflow-hidden p-8">
+        <div className="relative z-10 max-w-2xl">
+          <h1 className="font-serif text-3xl font-bold leading-tight sm:text-4xl">
+            Twitch-style support for indie filmmakers.
+          </h1>
+          <p className="mt-3 text-[var(--text-dim)]">
+            Fans subscribe, tip, and back the next film — creators get paid every second they&apos;re watched.
+            All in rupees, no crypto in sight.
+          </p>
+          <div className="mt-5 flex gap-3">
+            <Link href="/trending" className="btn-primary">Explore films</Link>
+            <Link href="/become-creator" className="btn-secondary">Start a channel</Link>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      </section>
+
+      {live.length > 0 && (
+        <Section title="Live now" subtitle="Premiering this moment — subscribers and backers only">
+          <Grid episodes={live} />
+        </Section>
+      )}
+
+      {trending.length > 0 && (
+        <Section title="Trending" subtitle="Ranked against films of similar size, so student films can trend too">
+          <Grid episodes={trending} />
+        </Section>
+      )}
+
+      {upcoming.length > 0 && (
+        <Section title="Upcoming premieres">
+          <Grid episodes={upcoming} />
+        </Section>
+      )}
+
+      {freshPublic.length > 0 && (
+        <Section title="Watch now">
+          <Grid episodes={freshPublic} />
+        </Section>
+      )}
+
+      {creators.length > 0 && (
+        <Section title="Featured creators">
+          <div className="flex flex-wrap gap-4">
+            {creators.map((c) => (
+              <Link
+                key={c.id}
+                href={`/c/${c.handle}`}
+                className="card flex w-48 flex-col items-start gap-1 p-4 hover:border-[var(--accent)]/50"
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--surface-raised)] font-semibold">
+                  {c.channelName.charAt(0)}
+                </div>
+                <div className="font-medium">{c.channelName}</div>
+                <div className="text-xs text-[var(--text-dim)]">@{c.handle}</div>
+              </Link>
+            ))}
+          </div>
+        </Section>
+      )}
+    </div>
+  );
+}
+
+function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <div className="mb-3">
+        <h2 className="font-serif text-xl font-semibold">{title}</h2>
+        {subtitle && <p className="text-sm text-[var(--text-dim)]">{subtitle}</p>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Grid({ episodes }: { episodes: Parameters<typeof EpisodeCard>[0]["episode"][] }) {
+  return (
+    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+      {episodes.map((e) => (
+        <EpisodeCard key={e.id} episode={e} />
+      ))}
     </div>
   );
 }

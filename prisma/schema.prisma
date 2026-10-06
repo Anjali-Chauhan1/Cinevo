@@ -1,0 +1,563 @@
+// Cinevo data model.
+//
+// SQLite is used for zero-config local/demo persistence. SQLite has no native
+// enum type in Prisma, so "enum-like" fields are plain Strings — allowed
+// values are documented above each field and enforced in application code
+// (see lib/validation.ts) rather than at the DB layer.
+//
+// All money fields are integer paise (1 rupee = 100 paise) to avoid floating
+// point drift in financial math. Display layers convert to rupees for the UI.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String
+  avatarUrl    String?
+  // "VIEWER" | "ADMIN" — a user can ALSO have a Creator profile regardless of
+  // this flag (that's what "switch to creator" means), admin is a distinct
+  // platform-operator role.
+  platformRole String   @default("VIEWER")
+  // "IN" | "US" | "OTHER" — captured once at signup from user-declared
+  // country + never re-derived from IP later (IP/VPN is not a trust signal
+  // for financial regulation gating, see Backing.ts).
+  region       String   @default("IN")
+  // "NONE" | "PENDING" | "VERIFIED" | "REJECTED"
+  kycStatus    String   @default("NONE")
+  // crude device/browser fingerprint captured at signup, used only as a weak
+  // signal to flag probable alt-accounts for popularity/review integrity.
+  deviceHash   String?
+  suspended    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  ledgerAccount    LedgerAccount?
+  creator          Creator?
+  watchSessions    WatchSession[]
+  episodeAccess    EpisodeAccess[]
+  subscriptions    Subscription[]  @relation("FanSubscriptions")
+  tipsSent         Tip[]
+  backings         Backing[]
+  backerPasses     BackerPass[]
+  producerUnits    ProducerUnitHolding[]
+  chatMessages     ChatMessage[]
+  reviews          Review[]
+  reports          Report[]        @relation("ReportsFiled")
+  moderatorOf      ModeratorAssignment[]
+  chatActionsTaken ChatAction[]    @relation("ChatActionsTaken")
+}
+
+// ---------------------------------------------------------------------------
+// Demo ledger (replaces onchain Vault / token transfers)
+//
+// Every balance-affecting operation goes through lib/ledger/* which writes a
+// LedgerAccount.balancePaise update AND an immutable LedgerTransaction row in
+// the SAME Prisma transaction — this is the equivalent of "settle in one
+// atomic tx" from the onchain design, and gives us a full audit trail.
+// ---------------------------------------------------------------------------
+
+model LedgerAccount {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id])
+  balancePaise   Int      @default(0)
+  // Funds behind an open requestWithdraw() cooldown. Mirrors the onchain
+  // 10-minute withdraw delay so a viewer can't drain a balance mid-session.
+  pendingWithdrawPaise Int @default(0)
+  withdrawRequestedAt  DateTime?
+  updatedAt      DateTime @updatedAt
+
+  transactions LedgerTransaction[]
+}
+
+model LedgerTransaction {
+  id            String   @id @default(cuid())
+  accountId     String
+  account       LedgerAccount @relation(fields: [accountId], references: [id])
+  // "DEPOSIT" | "VOUCHER_SETTLE" | "TIP_OUT" | "TIP_IN" | "SUB_STREAM_OUT" |
+  // "SUB_STREAM_IN" | "BACKING_OUT" | "BACKING_REFUND_IN" |
+  // "MILESTONE_RELEASE_IN" | "REVENUE_CLAIM_IN" | "PLATFORM_FEE_IN" |
+  // "WITHDRAW_REQUEST" | "WITHDRAW_COMPLETE" | "WITHDRAW_CANCEL" | "GRANT"
+  type          String
+  amountPaise   Int      // signed: positive = credit, negative = debit
+  balanceAfter  Int
+  refType       String?  // "EPISODE" | "CAMPAIGN" | "SUBSCRIPTION" | "TIP" | ...
+  refId         String?
+  meta          String?  // JSON string, free-form context for audit/debug
+  createdAt     DateTime @default(now())
+
+  @@index([accountId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Creator & content
+// ---------------------------------------------------------------------------
+
+model Creator {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id])
+  handle            String   @unique
+  channelName       String
+  bio               String?
+  bannerUrl         String?
+  socialLinks       String?  // JSON array of strings
+  // "PENDING" | "APPROVED" | "REJECTED"
+  verificationStatus String  @default("PENDING")
+  verificationNote  String?
+  verificationDocUrl String?
+  subPriceRupeesPaise Int    @default(4900) // e.g. ₹49/month, stored as paise
+  createdAt         DateTime @default(now())
+
+  episodes      Episode[]
+  emotes        Emote[]
+  campaigns     Campaign[]
+  subscribers   Subscription[] @relation("CreatorSubscriptions")
+  tipsReceived  Tip[]
+  moderators    ModeratorAssignment[]
+
+  // true while createdAt is within the "new creator" badge window
+  @@index([verificationStatus])
+}
+
+model Emote {
+  id        String  @id @default(cuid())
+  creatorId String
+  creator   Creator @relation(fields: [creatorId], references: [id])
+  code      String  // e.g. ":priyaHype:"
+  glyph     String  // emoji/unicode stand-in for an uploaded image asset
+  createdAt DateTime @default(now())
+}
+
+model Episode {
+  id              String   @id @default(cuid())
+  creatorId       String
+  creator         Creator  @relation(fields: [creatorId], references: [id])
+  title           String
+  description     String?
+  videoKey        String   // path under /public/demo-videos or external URL
+  thumbnailUrl    String?
+  durationSeconds Int
+  castCredits     String?  // JSON array of {name, role}
+
+  isPaid          Boolean  @default(false)
+  rateRupeesPaise Int      @default(0) // per-minute rate, paise; 10-200 paise band = ₹0.10-2.00
+  previewSeconds  Int      @default(120)
+  capRupeesPaise  Int      @default(1500)
+
+  premiereAt        DateTime?
+  earlyAccessUntil  DateTime?
+  publicAt          DateTime?
+
+  // "DRAFT" | "SCHEDULED" | "PREMIERING" | "EARLY_ACCESS" | "PUBLIC"
+  status          String   @default("DRAFT")
+  // version bump whenever the underlying video file is replaced, so watch
+  // history/reviews tied to an older cut stay attributable.
+  videoVersion    Int      @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  watchSessions   WatchSession[]
+  episodeAccess   EpisodeAccess[]
+  tips            Tip[]
+  premiere        Premiere?
+  hypeLevels      HypeLevel[]
+  hypeProgress    HypeProgress?
+  reviews         Review[]
+  popularity      PopularityScore?
+
+  @@index([creatorId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Pay-per-minute (demo replacement for signed EIP-712 vouchers + Vault.settle)
+// ---------------------------------------------------------------------------
+
+model WatchSession {
+  id              String   @id @default(cuid())
+  sessionToken    String   @unique
+  viewerId        String
+  viewer          User     @relation(fields: [viewerId], references: [id])
+  episodeId       String
+  episode         Episode  @relation(fields: [episodeId], references: [id])
+
+  // Pricing is snapshotted at session start so a creator changing price
+  // mid-stream never retroactively changes what's owed for THIS session.
+  rateRupeesPaiseSnapshot Int
+  previewSecondsSnapshot  Int
+  capRupeesPaiseSnapshot  Int
+
+  // "NONE" | "SUBSCRIBER" | "BACKER_PASS" | "FREE_EPISODE" | "ALREADY_PAID"
+  freeReason      String   @default("NONE")
+
+  cumulativeAmountPaise Int   @default(0) // highest voucher amount seen (monotonic)
+  lastVoucherAt   DateTime?
+  secondsWatched  Int      @default(0)
+
+  // "ACTIVE" | "SETTLED" | "EXPIRED"
+  status          String   @default("ACTIVE")
+  settledAmountPaise Int?
+  settledAt       DateTime?
+
+  startedAt       DateTime @default(now())
+
+  @@index([viewerId, episodeId, status])
+}
+
+// Running total of what a viewer has ever paid toward one episode, so a fully
+// paid / cap-reached episode is free forever for that viewer (rewatch rule).
+model EpisodeAccess {
+  id             String   @id @default(cuid())
+  viewerId       String
+  viewer         User     @relation(fields: [viewerId], references: [id])
+  episodeId      String
+  episode        Episode  @relation(fields: [episodeId], references: [id])
+  totalPaidPaise Int      @default(0)
+  capReached     Boolean  @default(false)
+  secondsWatched Int      @default(0)
+  firstWatchedAt DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([viewerId, episodeId])
+}
+
+// ---------------------------------------------------------------------------
+// Subscriptions (demo replacement for per-second payment stream)
+// ---------------------------------------------------------------------------
+
+model Subscription {
+  id               String   @id @default(cuid())
+  fanId            String
+  fan              User     @relation("FanSubscriptions", fields: [fanId], references: [id])
+  creatorId        String
+  creator          Creator  @relation("CreatorSubscriptions", fields: [creatorId], references: [id])
+  ratePerSecondPaiseScaled Int // ratePerMonth / (30*24*3600), scaled by 1e6 for precision
+  startedAt        DateTime @default(now())
+  cancelledAt      DateTime?
+  // every accrual (periodic sweep or on-demand touch) advances this and
+  // debits the fan / credits the creator for elapsed seconds since.
+  lastAccruedAt    DateTime @default(now())
+  active           Boolean  @default(true)
+  // auto-paused when the fan's balance can't cover further accrual; app asks
+  // them to top up instead of letting the balance go negative.
+  pausedForLowBalance Boolean @default(false)
+
+  @@unique([fanId, creatorId])
+}
+
+// ---------------------------------------------------------------------------
+// Tips
+// ---------------------------------------------------------------------------
+
+model Tip {
+  id          String   @id @default(cuid())
+  fanId       String
+  fan         User     @relation(fields: [fanId], references: [id])
+  creatorId   String
+  creator     Creator  @relation(fields: [creatorId], references: [id])
+  episodeId   String?
+  episode     Episode? @relation(fields: [episodeId], references: [id])
+  amountPaise Int
+  message     String?
+  createdAt   DateTime @default(now())
+
+  @@index([creatorId, createdAt])
+  @@index([episodeId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Film backing / escrow campaigns (demo replacement for CampaignFactory +
+// FilmCampaign + BackerPass)
+// ---------------------------------------------------------------------------
+
+model Campaign {
+  id              String   @id @default(cuid())
+  creatorId       String
+  creator         Creator  @relation(fields: [creatorId], references: [id])
+  filmTitle       String
+  pitch           String?
+  pitchVideoUrl   String?
+  goalPaise       Int
+  deadline        DateTime
+  deliveryDate    DateTime
+  // "ACTIVE" | "FUNDED_PRODUCING" | "DELIVERED" | "FAILED_REFUNDING" | "REFUNDED" | "CANCELLED"
+  status          String   @default("ACTIVE")
+  totalBackedPaise    Int  @default(0)
+  totalReleasedPaise  Int  @default(0) // escrow already paid out to creator
+
+  // Producer Units economics (hidden entirely for non-permitted regions, see
+  // lib/ledger/campaigns.ts — this is enforced server-side, not just in UI).
+  producerUnitsEnabled Boolean @default(false)
+  totalUnits           Int    @default(0)
+  // paise raised specifically via Producer Unit backings (excludes perk
+  // pledges) — this is the principal the 120% recoupment threshold is based on.
+  unitsRaisedPaise     Int    @default(0)
+  // cumulative paise ever routed to the unit pool from viewer revenue, used
+  // to detect the stage1 -> stage2 crossover (see distributeFilmRevenue).
+  revenueToUnitsPaise  Int    @default(0)
+  // accRevenuePerUnit scaled by 1e6 (paise-per-unit * 1e6), monotonically
+  // increasing; holders claim units * (acc - lastClaimed).
+  accRevenuePerUnitScaled BigInt @default(0)
+
+  // Set once the film this campaign funded is published, so its future
+  // pay-per-minute viewer revenue routes through the waterfall split instead
+  // of the plain 90/10 creator/platform split.
+  fundedEpisodeId String? @unique
+
+  createdAt       DateTime @default(now())
+
+  tiers       CampaignTier[]
+  milestones  Milestone[]
+  backings    Backing[]
+  backerPasses BackerPass[]
+  producerUnitHoldings ProducerUnitHolding[]
+  revenueDistributions RevenueDistribution[]
+
+  @@index([status])
+}
+
+model CampaignTier {
+  id          String   @id @default(cuid())
+  campaignId  String
+  campaign    Campaign @relation(fields: [campaignId], references: [id])
+  name        String
+  pricePaise  Int
+  perks       String   // JSON array of strings
+  backerLimit Int?
+  backedCount Int      @default(0)
+
+  backings Backing[]
+}
+
+model Milestone {
+  id             String   @id @default(cuid())
+  campaignId     String
+  campaign       Campaign @relation(fields: [campaignId], references: [id])
+  order          Int
+  label          String
+  percentOfGoal  Int      // e.g. 30, 40, 30 — must sum to 100 across a campaign
+  // "PENDING" | "SUBMITTED" | "APPROVED" | "RELEASED" | "REJECTED"
+  status         String   @default("PENDING")
+  proofUrl       String?
+  proofNote      String?
+  submittedAt    DateTime?
+  reviewedAt     DateTime?
+  reviewedBy     String?
+  releasedAmountPaise Int @default(0)
+
+  @@unique([campaignId, order])
+}
+
+model Backing {
+  id            String   @id @default(cuid())
+  campaignId    String
+  campaign      Campaign @relation(fields: [campaignId], references: [id])
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  tierId        String?
+  tier          CampaignTier? @relation(fields: [tierId], references: [id])
+  // "PERK" | "PRODUCER_UNIT"
+  type          String
+  amountPaise   Int
+  unitsGranted  Int      @default(0)
+  riskAcknowledged Boolean @default(false)
+  riskAcknowledgedAt DateTime?
+  // "ACTIVE" | "REFUNDED"
+  status        String   @default("ACTIVE")
+  refundedAt    DateTime?
+  createdAt     DateTime @default(now())
+
+  backerPass BackerPass?
+
+  @@index([campaignId, userId])
+}
+
+// Non-transferable per the design doc — enforced by simply never exposing a
+// transfer endpoint, and checked wherever gated access is evaluated.
+model BackerPass {
+  id          String   @id @default(cuid())
+  backingId   String   @unique
+  backing     Backing  @relation(fields: [backingId], references: [id])
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  campaignId  String
+  campaign    Campaign @relation(fields: [campaignId], references: [id])
+  tierName    String
+  createdAt   DateTime @default(now())
+  revoked     Boolean  @default(false) // set true on refund
+}
+
+model ProducerUnitHolding {
+  id          String   @id @default(cuid())
+  campaignId  String
+  campaign    Campaign @relation(fields: [campaignId], references: [id])
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  units       Int
+  // snapshot of campaign.accRevenuePerUnitScaled at mint time (or last claim)
+  // — new holders never retroactively capture revenue distributed before
+  // they joined.
+  lastClaimedAccRevenuePerUnitScaled BigInt @default(0)
+  mintedAt    DateTime @default(now())
+  lockUntil   DateTime // mintedAt + 12 months, enforced at claim/refund time
+
+  @@unique([campaignId, userId])
+}
+
+model RevenueDistribution {
+  id            String   @id @default(cuid())
+  campaignId    String
+  campaign      Campaign @relation(fields: [campaignId], references: [id])
+  amountPaise   Int
+  accRevenuePerUnitScaledAfter BigInt
+  createdAt     DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Premiere / live room
+// ---------------------------------------------------------------------------
+
+model Premiere {
+  id         String   @id @default(cuid())
+  episodeId  String   @unique
+  episode    Episode  @relation(fields: [episodeId], references: [id])
+  startAt    DateTime
+  // "SCHEDULED" | "LIVE" | "ENDED"
+  status     String   @default("SCHEDULED")
+  viewerPeak Int      @default(0)
+  slowModeSeconds Int @default(0)
+}
+
+model HypeLevel {
+  id             String   @id @default(cuid())
+  episodeId      String
+  episode        Episode  @relation(fields: [episodeId], references: [id])
+  level          Int
+  // "TIPS" | "REACTIONS"
+  goalType       String
+  goalValue      Int      // paise if TIPS, count if REACTIONS
+  unlockTitle    String
+  unlockAssetUrl String?
+  reachedAt      DateTime?
+
+  @@unique([episodeId, level])
+}
+
+model HypeProgress {
+  id               String   @id @default(cuid())
+  episodeId        String   @unique
+  episode          Episode  @relation(fields: [episodeId], references: [id])
+  tipTotalPaise    Int      @default(0)
+  reactionCount    Int      @default(0)
+  lastLevelReached Int      @default(0)
+}
+
+// Per-account reaction tally, capped at read time, so one viewer mashing a
+// reaction button can't single-handedly fill the hype bar.
+model EpisodeReactionCount {
+  id        String @id @default(cuid())
+  episodeId String
+  userId    String
+  count     Int    @default(0)
+
+  @@unique([episodeId, userId])
+}
+
+model ChatMessage {
+  id          String   @id @default(cuid())
+  episodeId   String
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  text        String
+  // "MESSAGE" | "TIP_HIGHLIGHT" | "SYSTEM" | "POLL"
+  type        String   @default("MESSAGE")
+  tipAmountPaise Int?
+  badges      String?  // JSON: {subscriberMonths, backerTier, verified}
+  pinned      Boolean  @default(false)
+  deleted     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([episodeId, createdAt])
+}
+
+model ModeratorAssignment {
+  id        String   @id @default(cuid())
+  creatorId String
+  creator   Creator  @relation(fields: [creatorId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  assignedAt DateTime @default(now())
+
+  @@unique([creatorId, userId])
+}
+
+model ChatAction {
+  id            String   @id @default(cuid())
+  episodeId     String
+  moderatorId   String
+  moderator     User     @relation("ChatActionsTaken", fields: [moderatorId], references: [id])
+  targetUserId  String
+  // "DELETE" | "TIMEOUT" | "BAN" | "SLOW_MODE_ON" | "SLOW_MODE_OFF"
+  action        String
+  reason        String?
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime?
+}
+
+// ---------------------------------------------------------------------------
+// Reviews & popularity
+// ---------------------------------------------------------------------------
+
+model Review {
+  id            String   @id @default(cuid())
+  episodeId     String
+  episode       Episode  @relation(fields: [episodeId], references: [id])
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  stars         Int
+  text          String?
+  tags          String?  // JSON array
+  // "VIEWER" | "SUBSCRIBER" | "BACKER"
+  reviewerBadge String
+  creatorReply  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([episodeId, userId])
+}
+
+model PopularityScore {
+  id          String   @id @default(cuid())
+  episodeId   String   @unique
+  episode     Episode  @relation(fields: [episodeId], references: [id])
+  score       Float
+  // "RISING" | "HOT" | "TRENDING" | "FAN_FAVOURITE" | "NONE"
+  level       String   @default("NONE")
+  breakdown   String?  // JSON of component scores, for transparency/debugging
+  computedAt  DateTime @default(now())
+}
+
+model Report {
+  id         String   @id @default(cuid())
+  // "EPISODE" | "REVIEW" | "CHAT_MESSAGE" | "CREATOR"
+  targetType String
+  targetId   String
+  reporterId String
+  reporter   User     @relation("ReportsFiled", fields: [reporterId], references: [id])
+  reason     String
+  // "OPEN" | "REVIEWED" | "ACTIONED" | "DISMISSED"
+  status     String   @default("OPEN")
+  createdAt  DateTime @default(now())
+}
