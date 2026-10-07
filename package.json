@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n next,realtime -c blue,magenta \"next dev -p 3001\" \"tsx watch realtime-server.ts\"",
+    "dev": "concurrently -n next,realtime -c blue,magenta \"next dev -p 3001\" \"tsx watch --env-file=.env realtime-server.ts\"",
     "build": "next build",
-    "start": "concurrently -n next,realtime -c blue,magenta \"next start -p 3001\" \"tsx realtime-server.ts\"",
+    "start": "concurrently -n next,realtime -c blue,magenta \"next start -p 3001\" \"tsx --env-file=.env realtime-server.ts\"",
     "lint": "next lint",
+    "postinstall": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force && npm run db:seed"
   },

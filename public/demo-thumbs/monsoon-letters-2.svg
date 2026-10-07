@@ -1,12 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
-  <defs>
-    <linearGradient id="g2" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#312e81"/>
-      <stop offset="100%" stop-color="#1e1b4b"/>
-    </linearGradient>
-  </defs>
-  <rect width="640" height="360" fill="url(#g2)"/>
-  <rect x="0" y="260" width="640" height="100" fill="#f59e0b" opacity="0.12"/>
-  <text x="50%" y="52%" text-anchor="middle" font-family="Georgia, serif" font-size="30" fill="#e2e8f0">Monsoon Letters — Ep 2</text>
-  <text x="50%" y="62%" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#a5b4fc">Priya Films · Paid</text>
-</svg>
+﻿<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="810" viewBox="0 0 1440 810"><defs><linearGradient id="wall" x2="1" y2="1"><stop stop-color="#3c392b"/><stop offset=".6" stop-color="#827657"/><stop offset="1" stop-color="#b2a181"/></linearGradient><linearGradient id="window" x2="0" y2="1"><stop stop-color="#c6d0b2"/><stop offset="1" stop-color="#628779"/></linearGradient><filter id="grain"><feTurbulence baseFrequency=".7" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope=".08"/></feComponentTransfer><feBlend in="SourceGraphic" mode="soft-light"/></filter></defs><g filter="url(#grain)"><path fill="url(#wall)" d="M0 0h1440v810H0z"/><path d="M865 90h408v489H865Z" fill="#353e31"/><path d="M883 108h372v452H883Z" fill="url(#window)"/><path d="m884 398 126-95 107 77 136-110v290H884Z" fill="#476754" opacity=".5"/><path d="M1064 106v455M884 305h369" stroke="#464b38" stroke-width="17"/><g stroke="#e1e2c2" opacity=".3"><path d="m959 145-38 104m280-97-32 109m-159 69-50 174m177-72-22 72"/></g><path d="m880 580 394-7 166 237H544Z" fill="#d3c28e" opacity=".17"/><path d="M0 680 1080 630l360 111v69H0Z" fill="#3b3526"/><path d="m0 699 1047-48 349 94-1167 65H0Z" fill="#574831"/><path d="m578 696 211-67 185 84-221 71Z" fill="#dad0a9"/><path d="m586 696 191 25 197-8-185-84Z" fill="#bcb38d"/><path d="m691 666 93 47 66-55" stroke="#746d55" stroke-width="2" fill="none"/><path d="m750 712 28-3 16 15-24 7Z" fill="#9c674a"/><path d="M433 584h54l-5 97h-44Z" fill="#82948a"/><ellipse cx="460" cy="585" rx="27" ry="8" fill="#45564e"/><path d="M179 662q-21-84 39-124h58q64 24 51 110Z" fill="#262c22"/><path d="M217 538v-42h60v42" stroke="#262c22" stroke-width="9" fill="none"/><path d="M52 0h360l-62 650-67 17 18-528L173 0Z" fill="#393c2b" opacity=".8"/></g></svg>

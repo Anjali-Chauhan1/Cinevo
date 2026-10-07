@@ -1,13 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
-  <defs>
-    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#1e293b"/>
-      <stop offset="100%" stop-color="#0f172a"/>
-    </linearGradient>
-  </defs>
-  <rect width="640" height="360" fill="url(#g1)"/>
-  <circle cx="540" cy="70" r="90" fill="#334155" opacity="0.5"/>
-  <rect x="0" y="260" width="640" height="100" fill="#0ea5e9" opacity="0.15"/>
-  <text x="50%" y="52%" text-anchor="middle" font-family="Georgia, serif" font-size="34" fill="#e2e8f0">Monsoon Letters</text>
-  <text x="50%" y="62%" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#94a3b8">Priya Films</text>
-</svg>
+﻿<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="810" viewBox="0 0 1440 810">
+<defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#8a9d8e"/><stop offset=".55" stop-color="#bcc2a2"/><stop offset="1" stop-color="#4c7560"/></linearGradient><linearGradient id="water" x2="0" y2="1"><stop stop-color="#789581"/><stop offset="1" stop-color="#172e28"/></linearGradient><radialGradient id="light"><stop stop-color="#ece3b6" stop-opacity=".8"/><stop offset="1" stop-color="#e5deb4" stop-opacity="0"/></radialGradient><filter id="grain"><feTurbulence type="fractalNoise" baseFrequency=".6" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope=".07"/></feComponentTransfer><feBlend in="SourceGraphic" mode="soft-light"/></filter><pattern id="rain" width="65" height="100" patternUnits="userSpaceOnUse"><path d="M18 0 4 43M60 63l-12 35" stroke="#d5e2ce" opacity=".16"/></pattern></defs>
+<g filter="url(#grain)"><path fill="url(#sky)" d="M0 0h1440v810H0z"/><ellipse cx="1020" cy="240" rx="500" ry="380" fill="url(#light)"/><path d="M0 370 120 300 240 330 405 214 590 305 715 250 820 305 990 200 1140 260 1280 160 1440 220V660H0Z" fill="#587969" opacity=".45"/><path d="M0 439 160 350 265 400 421 320 530 387 740 339 920 404 1050 350 1190 411 1325 304 1440 350V650H0Z" fill="#416750" opacity=".6"/><path d="M0 470Q420 421 800 494T1440 453V810H0Z" fill="url(#water)"/>
+<g fill="#284f3a"><path d="M0 455Q95 384 187 444T391 428L440 476H0Z"/><path d="M1100 460q120-100 340-55v83Z"/></g>
+<g fill="#77765a"><path d="m981 419 81-60 99 63v74H981Z"/><path d="m1216 413 76-44 86 43v51h-162Z"/></g><g fill="#36463b"><path d="m951 425 109-77 126 77h-25l-99-54-81 54Z"/><path d="m1198 417 92-59 106 59h-25l-79-36-66 36Z"/></g><path d="M1047 434h30v62h-30Z" fill="#ddbd76"/><path d="M1100 440h28v22h-28Z" fill="#bcb78b"/>
+<g stroke="#aebba2" fill="none" opacity=".22"><path d="M710 530h330M800 545h390M910 563h130M670 592h340M920 614h430M650 683h360M1080 704h290"/><path d="m1050 505 32 0-7 40h-12l15 17-20 24h-17l25-69" stroke="#e4c587" stroke-width="5"/></g>
+<path d="M0 0h88q-15 148 34 250t27 305l-53 143H0Z" fill="#193c2e"/><path d="M68 37q158 37 313 113l192 11-189 17-160-58-102 49" fill="none" stroke="#214532" stroke-width="22"/>
+<g fill="#214b35"><ellipse cx="262" cy="44" rx="265" ry="88"/><ellipse cx="397" cy="54" rx="200" ry="57"/><ellipse cx="124" cy="144" rx="150" ry="100"/></g>
+<path d="M0 742Q231 656 451 708t409 63l580-2v41H0Z" fill="#142c23"/><path d="m929 657 8-63h16l16 65Z" fill="#28382b"/><circle cx="946" cy="581" r="12" fill="#28382b"/><path d="m938 653-2 43m20-43 9 41" stroke="#243629" stroke-width="9"/><path d="M878 572q68-84 136 0Z" fill="#bc9b60"/><path d="M946 563v74q-10 8-14-3" stroke="#c2a167" stroke-width="3" fill="none"/><path d="m923 619-24 8 6 27 21-6Z" fill="#947753"/><path d="M846 710q133 20 250-18l-42 32-144 9Z" fill="#24352a"/>
+<path fill="url(#rain)" d="M0 0h1440v810H0z"/></g></svg>

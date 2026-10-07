@@ -1,12 +1,2 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
-  <defs>
-    <linearGradient id="g3" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#7f1d1d"/>
-      <stop offset="100%" stop-color="#1c1917"/>
-    </linearGradient>
-  </defs>
-  <rect width="640" height="360" fill="url(#g3)"/>
-  <circle cx="100" cy="80" r="60" fill="#dc2626" opacity="0.2"/>
-  <text x="50%" y="52%" text-anchor="middle" font-family="Georgia, serif" font-size="34" fill="#fef2f2">Signal Lost</text>
-  <text x="50%" y="62%" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#fca5a5">Rahul Reels · Live Premiere</text>
-</svg>
+﻿<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="810" viewBox="0 0 1440 810"><defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#172936"/><stop offset=".7" stop-color="#69868a"/><stop offset="1" stop-color="#c3a77c"/></linearGradient><radialGradient id="glow"><stop stop-color="#dfc48f" stop-opacity=".5"/><stop offset="1" stop-color="#c6ba94" stop-opacity="0"/></radialGradient><filter id="grain"><feTurbulence baseFrequency=".7" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope=".055"/></feComponentTransfer><feBlend in="SourceGraphic" mode="soft-light"/></filter></defs><g filter="url(#grain)"><path fill="url(#sky)" d="M0 0h1440v810H0z"/><circle cx="996" cy="250" r="240" fill="url(#glow)"/><circle cx="996" cy="250" r="41" fill="#d6d3b0" opacity=".7"/><g fill="#ddd9b5" opacity=".6"><circle cx="324" cy="133" r="2"/><circle cx="721" cy="75" r="1.5"/><circle cx="1100" cy="89" r="2"/><circle cx="569" cy="210" r="1"/><circle cx="1340" cy="189" r="2"/></g><path d="m0 472 184-151 101 84 181-134 237 216 163-143 170 110 212-155 192 105v406H0Z" fill="#35515b"/><path d="m0 614 232-174 180 93 283-170 163 144 184-89 185 62 213-97v427H0Z" fill="#243e45"/><path d="m0 744 255-109 219 56 147-77 179 39 167-122 194 86 279-65v258H0Z" fill="#152e33"/><path d="m846 684 142-47 156 27 155-39 141 14v171H812Z" fill="#122529"/>
+<g stroke="#273e3d" fill="none"><path d="m1090 668 43-390 44 390m-83-44 77-86-66-67 56-62-43-43 31-34" stroke-width="7"/><path d="M1133 278V139M1077 189h112M1057 236h151M1097 155h72" stroke-width="5"/><path d="m1092 669 41-309 44 309" stroke-width="2"/></g><circle cx="1133" cy="139" r="6" fill="#f0ae76"/><g stroke="#e5be85" fill="none" opacity=".15"><circle cx="1133" cy="139" r="48"/><circle cx="1133" cy="139" r="90"/><circle cx="1133" cy="139" r="135"/></g><path d="M926 642h91v65h-91Z" fill="#344440"/><path d="m913 644 54-40 63 40Z" fill="#1a2b2b"/><path d="M945 663h21v22h-21Z" fill="#e1b572"/><path d="m935 707 24-18 111 121h-209Z" fill="#b59f65" opacity=".07"/></g></svg>

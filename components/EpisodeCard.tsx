@@ -1,77 +1,35 @@
-import Link from "next/link";
-import { paiseWhole } from "@/lib/format";
-
-interface EpisodeCardData {
-  id: string;
-  title: string;
-  thumbnailUrl: string | null;
-  status: string;
-  isPaid: boolean;
-  rateRupeesPaise: number;
-  premiereAt: Date | string | null;
-  creator: { handle: string; channelName: string };
+﻿import Link from "next/link";
+import { durationLabel, paise } from "@/lib/format";
+import { Icon } from "@/components/Icon";
+export interface EpisodeCardData {
+  id: string; title: string; thumbnailUrl: string | null; status: string;
+  isPaid: boolean; rateRupeesPaise: number; premiereAt: Date | string | null;
+  durationSeconds?: number;
+  creator: { handle: string; channelName: string; verificationStatus?: string };
   popularity?: { level: string; score: number } | null;
 }
-
-const STATUS_LABEL: Record<string, string> = {
-  PREMIERING: "Live",
-  EARLY_ACCESS: "Early access",
-  SCHEDULED: "Upcoming",
-  PUBLIC: "",
-  DRAFT: "Draft",
-};
-
-const LEVEL_STYLE: Record<string, string> = {
-  RISING: "bg-emerald-500/15 text-emerald-400",
-  HOT: "bg-orange-500/15 text-orange-400",
-  TRENDING: "bg-[var(--accent)]/15 text-[var(--accent)]",
-  FAN_FAVOURITE: "bg-pink-500/15 text-pink-400",
-};
-
 export function EpisodeCard({ episode }: { episode: EpisodeCardData }) {
-  const statusLabel = STATUS_LABEL[episode.status];
-  return (
-    <Link href={`/watch/${episode.id}`} className="group block">
-      <div className="relative aspect-video overflow-hidden rounded-lg bg-[var(--surface-raised)]">
-        {episode.thumbnailUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={episode.thumbnailUrl}
-            alt={episode.title}
-            className="h-full w-full object-cover transition-transform group-hover:scale-105"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center text-[var(--text-dim)]">No preview</div>
-        )}
-        {statusLabel && (
-          <span
-            className={`badge absolute left-2 top-2 ${
-              episode.status === "PREMIERING" ? "bg-red-500 text-white" : "bg-black/70 text-white"
-            }`}
-          >
-            {episode.status === "PREMIERING" && <span className="mr-1 h-1.5 w-1.5 rounded-full bg-white animate-pulse" />}
-            {statusLabel}
-          </span>
-        )}
-        {episode.popularity && LEVEL_STYLE[episode.popularity.level] && (
-          <span className={`badge absolute right-2 top-2 ${LEVEL_STYLE[episode.popularity.level]}`}>
-            {episode.popularity.level.replace("_", " ").toLowerCase()}
-          </span>
-        )}
-        {!episode.isPaid ? (
-          <span className="badge absolute bottom-2 right-2 bg-black/70 text-emerald-400">Free</span>
-        ) : (
-          <span className="badge absolute bottom-2 right-2 bg-black/70 text-[var(--accent)]">
-            {paiseWhole(episode.rateRupeesPaise)}/min
-          </span>
-        )}
-      </div>
-      <div className="mt-2">
-        <div className="truncate text-sm font-medium text-[var(--text)] group-hover:text-[var(--accent)]">
-          {episode.title}
-        </div>
-        <div className="truncate text-xs text-[var(--text-dim)]">{episode.creator.channelName}</div>
-      </div>
+  const statusLabel = ({ PREMIERING: "Live premiere", EARLY_ACCESS: "Early access", SCHEDULED: "Coming soon", DRAFT: "Draft" } as Record<string, string>)[episode.status];
+  const href = episode.status === "PREMIERING" ? `/premiere/${episode.id}` : `/watch/${episode.id}`;
+  return <article className="film-card">
+    <Link href={href} className="film-art" aria-label={`${episode.title}${statusLabel ? `, ${statusLabel}` : ""}`}>
+      {episode.thumbnailUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={episode.thumbnailUrl} alt="" loading="lazy" className="film-image" />
+      ) : <div className="film-placeholder"><Icon name="film" size={40} /><span>{episode.title}</span></div>}
+      <div className="film-shade" />
+      {statusLabel && <span className={`film-status ${episode.status === "PREMIERING" ? "is-live" : ""}`}>{episode.status === "PREMIERING" && <span className="live-dot" />}{statusLabel}</span>}
+      <span className="film-play"><Icon name="play" size={22} /></span>
+      {episode.durationSeconds != null && <span className="film-duration">{durationLabel(episode.durationSeconds)}</span>}
     </Link>
-  );
+    <div className="film-details">
+      <Link href={`/c/${episode.creator.handle}`} className="film-avatar" aria-label={`${episode.creator.channelName} channel`}>{episode.creator.channelName.charAt(0)}</Link>
+      <div className="min-w-0 flex-1">
+        <Link href={href} className="film-title">{episode.title}</Link>
+        <Link href={`/c/${episode.creator.handle}`} className="film-creator">{episode.creator.channelName} {episode.creator.verificationStatus === "APPROVED" && <Icon name="check" size={12} />}</Link>
+        <div className="film-meta"><span className={!episode.isPaid ? "free-label" : ""}>{episode.isPaid ? `${paise(episode.rateRupeesPaise)}/min` : "Free to watch"}</span>{episode.popularity && episode.popularity.level !== "NONE" && <><span>·</span><span>{episode.popularity.level.replaceAll("_", " ").toLowerCase()}</span></>}</div>
+        {episode.status === "SCHEDULED" && episode.premiereAt && <p className="film-date">{new Intl.DateTimeFormat("en-IN", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" }).format(new Date(episode.premiereAt))} IST</p>}
+      </div>
+    </div>
+  </article>;
 }
