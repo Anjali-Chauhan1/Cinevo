@@ -79,6 +79,7 @@ export default function CampaignPage({ params }: { params: { id: string } }) {
   if (!data) return <p className="py-12 text-center text-[var(--text-dim)]">Loading...</p>;
 
   const { campaign, backerCount, unitEconomics, viewerState } = data;
+  const verifyHref = `/verify?next=${encodeURIComponent(`/back/${id}`)}`;
   const pct = Math.min(100, Math.round((campaign.totalBackedPaise / campaign.goalPaise) * 100));
 
   async function backPerk() {
@@ -114,18 +115,6 @@ export default function CampaignPage({ params }: { params: { id: string } }) {
       await refreshAuth();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Backing failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function requestKyc() {
-    setBusy(true);
-    try {
-      await api.post("/api/account/kyc");
-      await refreshAuth();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Request failed");
     } finally {
       setBusy(false);
     }
@@ -296,13 +285,17 @@ export default function CampaignPage({ params }: { params: { id: string } }) {
               viewerState.region !== "US" ? (
                 <p className="mt-3 text-xs text-yellow-400">Not available in your region yet.</p>
               ) : viewerState.kycStatus === "PENDING" ? (
-                <p className="mt-3 text-xs text-yellow-400">KYC pending admin review.</p>
+                <p className="mt-3 text-xs text-yellow-400">
+                  Your identity check is under review. <Link href={verifyHref} className="underline">Check status</Link>
+                </p>
               ) : viewerState.kycStatus === "REJECTED" ? (
-                <p className="mt-3 text-xs text-red-400">KYC was rejected.</p>
+                <p className="mt-3 text-xs text-red-400">
+                  Your identity check wasn&apos;t approved. <Link href={verifyHref} className="underline">See why and resubmit</Link>
+                </p>
               ) : (
-                <button className="btn-secondary mt-3 w-full" onClick={requestKyc} disabled={busy}>
-                  Start KYC verification
-                </button>
+                <Link href={verifyHref} className="btn-secondary mt-3 w-full">
+                  Verify your identity
+                </Link>
               )
             ) : showUnitCheckout ? (
               <div className="mt-3">

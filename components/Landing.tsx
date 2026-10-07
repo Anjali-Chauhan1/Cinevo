@@ -31,6 +31,7 @@ export function Landing() {
           <Link href="/login" className="btn-secondary">
             Sign in
           </Link>
+          <Link href="/discover" className="btn-secondary">Explore films <Icon name="arrow" size={16} /></Link>
         </div>
         <span className="landing-footnote">Sign in with email · prices in ₹ · no wallets or popups</span>
       </section>

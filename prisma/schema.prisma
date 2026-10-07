@@ -35,7 +35,9 @@ model User {
   // country + never re-derived from IP later (IP/VPN is not a trust signal
   // for financial regulation gating, see Backing.ts).
   region       String   @default("IN")
-  // "NONE" | "PENDING" | "VERIFIED" | "REJECTED"
+  // "NONE" | "PENDING" | "VERIFIED" | "REJECTED" — mirrors the status of the
+  // latest KycSubmission so gates can check it without a join. On approval,
+  // `region` above is overwritten from the verified country of residence.
   kycStatus    String   @default("NONE")
   // crude device/browser fingerprint captured at signup, used only as a weak
   // signal to flag probable alt-accounts for popularity/review integrity.
@@ -57,6 +59,36 @@ model User {
   reports          Report[]        @relation("ReportsFiled")
   moderatorOf      ModeratorAssignment[]
   chatActionsTaken ChatAction[]    @relation("ChatActionsTaken")
+  kycSubmissions   KycSubmission[]
+}
+
+// One identity-verification attempt. Manual admin review stands in for a
+// licensed KYC partner; every attempt is kept (never overwritten) so a
+// reject-then-resubmit history stays auditable. Uploaded files live in the
+// private storage/kyc directory, never under public/.
+model KycSubmission {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id])
+  legalName       String
+  dateOfBirth     DateTime
+  // ISO 3166-1 alpha-2 country of residence, e.g. "US", "IN"
+  country         String
+  // "PASSPORT" | "DRIVERS_LICENSE" | "NATIONAL_ID"
+  idType          String
+  // Only the last 4 characters of the ID number are ever stored.
+  idNumberLast4   String
+  documentKey     String
+  selfieKey       String
+  // "PENDING" | "APPROVED" | "REJECTED"
+  status          String    @default("PENDING")
+  rejectionReason String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([userId])
+  @@index([status])
 }
 
 // ---------------------------------------------------------------------------

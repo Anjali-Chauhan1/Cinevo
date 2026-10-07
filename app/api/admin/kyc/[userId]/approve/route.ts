@@ -1,11 +1,9 @@
-import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 import { ok, withApiErrors } from "@/lib/api";
-import { KycStatus } from "@/lib/constants";
+import { approveKyc } from "@/lib/kyc";
 
 export const POST = withApiErrors(async (_req: Request, { params }: { params: { userId: string } }) => {
-  await requireAdmin();
-  const { userId } = params;
-  const user = await prisma.user.update({ where: { id: userId }, data: { kycStatus: KycStatus.VERIFIED } });
-  return ok({ user: { id: user.id, kycStatus: user.kycStatus } });
+  const admin = await requireAdmin();
+  const user = await approveKyc(admin.id, params.userId);
+  return ok({ user: { id: user.id, kycStatus: user.kycStatus, region: user.region } });
 });

@@ -75,6 +75,35 @@ export const KycStatus = {
   REJECTED: "REJECTED",
 } as const;
 
+export const KycSubmissionStatus = {
+  PENDING: "PENDING",
+  APPROVED: "APPROVED",
+  REJECTED: "REJECTED",
+} as const;
+
+export const KycIdType = {
+  PASSPORT: "PASSPORT",
+  DRIVERS_LICENSE: "DRIVERS_LICENSE",
+  NATIONAL_ID: "NATIONAL_ID",
+} as const;
+
+export const KYC = {
+  MIN_AGE: 18,
+  MAX_FILE_BYTES: 5 * 1024 * 1024, // 5 MB per uploaded file
+  // Countries offered in the residence dropdown (ISO 3166-1 alpha-2). Anything
+  // other than IN/US verifies fine but maps to the "OTHER" region.
+  COUNTRIES: [
+    { code: "IN", name: "India" },
+    { code: "US", name: "United States" },
+    { code: "GB", name: "United Kingdom" },
+    { code: "CA", name: "Canada" },
+    { code: "AU", name: "Australia" },
+    { code: "SG", name: "Singapore" },
+    { code: "AE", name: "United Arab Emirates" },
+    { code: "DE", name: "Germany" },
+  ],
+} as const;
+
 export const VerificationStatus = {
   PENDING: "PENDING",
   APPROVED: "APPROVED",

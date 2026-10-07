@@ -8,6 +8,7 @@ import { TipError } from "@/lib/ledger/tips";
 import { CampaignError } from "@/lib/ledger/campaigns";
 import { ReviewError } from "@/lib/ledger/reviews";
 import { ChatError } from "@/lib/chat";
+import { KycError } from "@/lib/kyc";
 
 /**
  * Wraps a route handler so every domain error class defined across the
@@ -39,7 +40,8 @@ export function errorToResponse(err: unknown): NextResponse {
     err instanceof TipError ||
     err instanceof CampaignError ||
     err instanceof ReviewError ||
-    err instanceof ChatError
+    err instanceof ChatError ||
+    err instanceof KycError
   ) {
     return NextResponse.json({ error: err.message }, { status: 400 });
   }
