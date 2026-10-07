@@ -1,6 +1,6 @@
-﻿"use client";
+"use client";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { Icon } from "@/components/Icon";
@@ -8,7 +8,6 @@ import { paise } from "@/lib/format";
 
 export function Nav() {
   const { user, logout, loading } = useAuth();
-  const router = useRouter();
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -43,7 +42,7 @@ export function Nav() {
               <Link href="/profile">Your profile</Link><Link href="/wallet">Balance & subscriptions</Link>
               {user.creator && <Link href={`/c/${user.creator.handle}`}>Your channel</Link>}
               <Link href={user.creator ? "/studio" : "/become-creator"}>{user.creator ? "Creator studio" : "Start a channel"}</Link>
-              <button onClick={async () => { await logout(); setMenuOpen(false); router.push("/"); }}>Sign out</button>
+              <button onClick={async () => { await logout(); window.location.assign("/"); }}>Sign out</button>
             </div>}
           </div>
         </> : <><Link href="/login" className="signin-link">Log in</Link><Link href="/signup" className="btn-primary signup-link">Join Cinevo <Icon name="arrow" size={15} /></Link></>)}

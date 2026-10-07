@@ -1,18 +1,23 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { ApiError } from "@/lib/client-api";
 
 export default function LoginPage() {
-  const { login } = useAuth();
-  const router = useRouter();
+  const { login, user, loading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Already remembered by the site — no need to sign in again. Full page
+  // loads (not router.push) so "/" is re-rendered with the new session
+  // instead of served from the client router cache.
+  useEffect(() => {
+    if (!loading && user) window.location.replace("/");
+  }, [loading, user]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -20,7 +25,7 @@ export default function LoginPage() {
     setBusy(true);
     try {
       await login(email, password);
-      router.push("/");
+      window.location.assign("/");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong");
     } finally {

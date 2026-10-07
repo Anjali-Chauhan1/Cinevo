@@ -1,12 +1,21 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { syncEpisodeStatus } from "@/lib/episodes";
 import { EpisodeCard, type EpisodeCardData } from "@/components/EpisodeCard";
 import { Icon } from "@/components/Icon";
 import { paise } from "@/lib/format";
+import { getCurrentUser } from "@/lib/auth";
+import { Landing } from "@/components/Landing";
 export const dynamic = "force-dynamic";
 
+// Returning visitors with a valid session cookie (30 days, see lib/auth.ts)
+// go straight to discovery; everyone else gets the landing page first.
 export default async function HomePage() {
+  const user = await getCurrentUser();
+  return user ? <DiscoverHome /> : <Landing />;
+}
+
+async function DiscoverHome() {
   const [raw, creators, campaigns] = await Promise.all([
     prisma.episode.findMany({ where: { status: { in: ["PUBLIC", "EARLY_ACCESS", "PREMIERING", "SCHEDULED"] } }, include: { creator: true, popularity: true }, orderBy: { createdAt: "desc" }, take: 24 }),
     prisma.creator.findMany({ where: { verificationStatus: "APPROVED" }, take: 4, orderBy: { createdAt: "desc" } }),
