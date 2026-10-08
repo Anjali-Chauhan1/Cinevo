@@ -180,3 +180,11 @@ svg { flex-shrink:0; }
   .explore-heading { padding:10px 0 25px; } .explore-heading h1 { font-size:34px; } .explore-heading p { font-size:12px; line-height:1.7; } .explore-search { flex-wrap:wrap; gap:10px; padding:12px; } .explore-search>input[type="search"] { flex-basis:calc(100% - 40px); font-size:12px; } .explore-search select { flex:1; } .explore-search>.btn-primary { font-size:12px; } .results-heading p { font-size:11px; line-height:1.6; }
 }
 @media(prefers-reduced-motion:reduce) { *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; } }
+/* Theme switch: the new theme sweeps in from the top-left corner behind a 45° edge.
+   vmax keeps the edge at a true 45° on any screen shape. */
+/* Link/button colour fades would otherwise be caught half-way in the new snapshot. */
+.vt-theme * { transition:none !important; }
+.vt-theme::view-transition-old(root) { animation:none; z-index:0; }
+.vt-theme::view-transition-new(root) { animation:theme-wipe .9s cubic-bezier(.22,1,.36,1) both; z-index:1; }
+@keyframes theme-wipe { from { clip-path:polygon(0 0,0 0,0 0); } to { clip-path:polygon(0 0,200vmax 0,0 200vmax); } }
+@media(prefers-reduced-motion:reduce) { ::view-transition-old(*), ::view-transition-new(*), ::view-transition-group(*) { animation:none !important; } }
