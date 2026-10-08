@@ -1,7 +1,7 @@
 ﻿"use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { Icon, type IconName } from "@/components/Icon";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -37,6 +37,23 @@ export function Nav() {
         {!loading && (user ? <><Link className="sidebar-account" href="/profile" onClick={() => setOpen(false)}><span className="avatar">{user.displayName.charAt(0)}</span><span><strong>{user.displayName}</strong><small>Your profile</small></span></Link><Link className="sidebar-utility" href="/verify" onClick={() => setOpen(false)}><Icon name="check" size={17} />Identity verification</Link><button className="sidebar-utility" onClick={async () => { await logout(); window.location.assign("/"); }}><Icon name="logout" size={17} />Log out</button></> : <div className="sidebar-auth"><Link className="btn-primary" href="/signup" onClick={() => setOpen(false)}>Join Cinevo</Link><Link href="/login" onClick={() => setOpen(false)}>Log in</Link></div>)}
       </div>
     </aside>
-    <div className="workspace-topbar"><nav aria-label="Quick browse"><Link href="/discover">Discover</Link><Link href="/trending?sort=newest">New releases</Link><Link href="/trending?filter=short">Short films</Link><Link href="/trending?filter=premieres">Premieres</Link></nav><form action="/trending" role="search"><input aria-label="Search films and creators" name="q" type="search" placeholder="Search films, creators…" /><button type="submit" aria-label="Search"><Icon name="search" size={18} /></button></form></div>
+    <div className="workspace-topbar"><Suspense fallback={<QuickBrowse pathname={pathname} />}><QuickBrowseWithParams pathname={pathname} /></Suspense><form action="/trending" role="search"><input aria-label="Search films and creators" name="q" type="search" placeholder="Search films, creators…" /><button type="submit" aria-label="Search"><Icon name="search" size={18} /></button></form></div>
   </>;
+}
+
+// useSearchParams needs a Suspense boundary for the production build.
+function QuickBrowseWithParams({ pathname }: { pathname: string }) {
+  return <QuickBrowse pathname={pathname} params={useSearchParams()} />;
+}
+
+function QuickBrowse({ pathname, params }: { pathname: string; params?: URLSearchParams }) {
+  const onTrending = pathname === "/trending";
+  const filter = params?.get("filter") ?? "all";
+  const links = [
+    { href: "/discover", label: "Discover", active: pathname === "/discover" || pathname === "/" },
+    { href: "/trending?sort=newest", label: "New releases", active: onTrending && params?.get("sort") === "newest" && filter === "all" },
+    { href: "/trending?filter=short", label: "Short films", active: onTrending && filter === "short" },
+    { href: "/trending?filter=premieres", label: "Premieres", active: onTrending && filter === "premieres" },
+  ];
+  return <nav aria-label="Quick browse">{links.map(l => <Link key={l.label} href={l.href} aria-current={l.active ? "page" : undefined}>{l.label}</Link>)}</nav>;
 }

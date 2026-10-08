@@ -52,7 +52,7 @@ html { background:var(--bg); }
 .workspace-topbar { margin-left:207px; padding:24px 32px; display:flex; align-items:center; justify-content:space-between; gap:24px; min-height:83px; }
 .workspace-topbar nav { display:flex; gap:24px; align-items:center; font-size:12px; color:var(--text-dim); }
 .workspace-topbar nav a { white-space:nowrap; padding:6px 0; }
-.workspace-topbar nav a:first-child { background:var(--accent-soft); color:var(--accent); border-radius:7px; padding:6px 10px; }
+.workspace-topbar nav a[aria-current="page"] { background:var(--accent-soft); color:var(--accent); border-radius:7px; padding:6px 10px; margin:0 -10px; }
 .workspace-topbar nav a:hover { color:var(--accent); }
 .workspace-topbar form { display:flex; align-items:center; border:1px solid var(--border); border-radius:24px; width:238px; padding:0 13px; background:var(--surface); }
 .workspace-topbar input { background:transparent; font-size:11px; width:100%; min-width:0; padding:10px 0; outline:none; }
