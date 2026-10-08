@@ -50,7 +50,7 @@ export function PremiereRoom({
   const [viewerCount, setViewerCount] = useState(0);
   const [input, setInput] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
-  const [floatingReactions, setFloatingReactions] = useState<{ id: number; emoji: string }[]>([]);
+  const [floatingReactions, setFloatingReactions] = useState<{ id: number; emoji: string; drift: number }[]>([]);
   const [hypeLevels, setHypeLevels] = useState<HypeLevel[]>([]);
   const [hypeProgress, setHypeProgress] = useState<HypeProgress | null>(null);
   const [unlockBanner, setUnlockBanner] = useState<string | null>(null);
@@ -82,8 +82,11 @@ export function PremiereRoom({
     socket.on("chat_error", ({ message }: { message: string }) => setChatError(message));
     socket.on("reaction", ({ emoji }: { emoji: string }) => {
       const id = Math.random();
-      setFloatingReactions((prev) => [...prev, { id, emoji }]);
-      setTimeout(() => setFloatingReactions((prev) => prev.filter((r) => r.id !== id)), 2000);
+      // Random sideways drift so a burst of the same emoji fans out instead of stacking.
+      const drift = Math.round((Math.random() - 0.5) * 48);
+      // Capped so a reaction storm can't pile up unbounded DOM nodes.
+      setFloatingReactions((prev) => [...prev.slice(-29), { id, emoji, drift }]);
+      setTimeout(() => setFloatingReactions((prev) => prev.filter((r) => r.id !== id)), 2200);
     });
     socket.on("hype_update", ({ progress, newLevel }: { progress: typeof hypeProgress; newLevel: { level: number; unlockTitle: string } | null }) => {
       setHypeProgress(progress);
@@ -173,19 +176,27 @@ export function PremiereRoom({
           </div>
         ))}
 
-        <div className="pointer-events-none absolute bottom-2 right-2 flex flex-col items-end gap-1">
-          {floatingReactions.map((r) => (
-            <span key={r.id} className="animate-bounce text-2xl">{r.emoji}</span>
-          ))}
-        </div>
       </div>
 
       <div className="border-t border-[var(--border)] p-2">
         <div className="mb-2 flex gap-1">
           {REACTIONS.map((e) => (
-            <button key={e} onClick={() => sendReaction(e)} className="rounded-md px-1.5 py-0.5 hover:bg-[var(--surface-raised)]">
-              {e}
-            </button>
+            <span key={e} className="relative">
+              <button onClick={() => sendReaction(e)} className="rounded-md px-1.5 py-0.5 hover:bg-[var(--surface-raised)]">
+                {e}
+              </button>
+              {/* Each reaction floats up from the button it belongs to. */}
+              {floatingReactions.filter((r) => r.emoji === e).map((r) => (
+                <span
+                  key={r.id}
+                  aria-hidden
+                  className="reaction-float"
+                  style={{ "--drift": `${r.drift}px` } as React.CSSProperties}
+                >
+                  {r.emoji}
+                </span>
+              ))}
+            </span>
           ))}
         </div>
         {chatError && <p className="mb-1 text-xs text-red-400">{chatError}</p>}

@@ -174,3 +174,10 @@ html { background:var(--bg); }
   .project-callout { padding:22px; } .project-callout .btn-primary { font-size:12px; } .premiere-empty { padding:20px; } .premiere-empty h3 { font-size:12px; } .landing-hero h1 { font-size:40px; }
 }
 @media(prefers-reduced-motion:reduce) { .app-sidebar { transition:none; } }
+.reaction-float { position:absolute; bottom:100%; left:50%; z-index:10; font-size:24px; line-height:1; pointer-events:none; animation:reaction-float 2.2s ease-out forwards; }
+@keyframes reaction-float {
+  0% { transform:translate(-50%,0) scale(.6); opacity:0; }
+  12% { transform:translate(-50%,-14px) scale(1.15); opacity:1; }
+  70% { opacity:1; }
+  100% { transform:translate(calc(-50% + var(--drift, 0px)),-240px) scale(.9); opacity:0; }
+}
