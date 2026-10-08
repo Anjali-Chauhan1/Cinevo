@@ -3,6 +3,55 @@ import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { Icon } from "@/components/Icon";
 
+let audio: AudioContext | null = null;
+
+/** Synthesised shutter click: two crisp filtered-noise ticks (panned slightly
+ * left then right) over a short low thump. No audio file to load. */
+function playSwitchSound() {
+  try {
+    audio ??= new AudioContext();
+    const ctx = audio;
+    if (ctx.state === "suspended") ctx.resume();
+    const now = ctx.currentTime;
+    const noise = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate);
+    const data = noise.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+
+    const tick = (at: number, highpass: number, band: number, q: number, peak: number, decay: number, pan: number) => {
+      const src = ctx.createBufferSource();
+      src.buffer = noise;
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = highpass;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = band;
+      bp.Q.value = q;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, at);
+      gain.gain.linearRampToValueAtTime(peak, at + 0.001);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+      const panner = ctx.createStereoPanner();
+      panner.pan.value = pan;
+      src.connect(hp).connect(bp).connect(gain).connect(panner).connect(ctx.destination);
+      src.start(at);
+      src.stop(at + decay + 0.005);
+    };
+    tick(now, 5000, 7500, 3.5, 0.25, 0.008, -0.08);
+    tick(now + 0.045, 6000, 6000, 3, 0.18, 0.009, 0.08);
+
+    const thump = ctx.createOscillator();
+    const thumpGain = ctx.createGain();
+    thump.frequency.setValueAtTime(300, now);
+    thump.frequency.exponentialRampToValueAtTime(90, now + 0.045);
+    thumpGain.gain.setValueAtTime(0.035, now);
+    thumpGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.045);
+    thump.connect(thumpGain).connect(ctx.destination);
+    thump.start(now);
+    thump.stop(now + 0.05);
+  } catch { /* Sound is decoration; the theme still changes without it. */ }
+}
+
 export function ThemeToggle() {
   const [theme, setTheme] = useState("light");
   useEffect(() => {
@@ -21,6 +70,7 @@ export function ThemeToggle() {
   }, []);
   function change(next: string) {
     if (next === theme) return;
+    playSwitchSound();
     try { localStorage.setItem("cinevo-theme", next); } catch { /* Theme still applies for this visit. */ }
     const root = document.documentElement;
     // flushSync so the pressed button is already updated in the "after" snapshot.
