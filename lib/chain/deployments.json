@@ -1,4 +1,13 @@
 {
+  "10143": {
+    "backerPass": "0xcE99a9ee7DD1af77e47036fe679fd1aDfFf2F8ac",
+    "token": "0x26769eCfF7207a551744632B5eEc71b0056a2816",
+    "registry": "0xdC0Ec3b71eb9228059A98afa52768308406e72C7",
+    "vault": "0x97aAfb7F0776E763280369489dAa5E6ACF4abca6",
+    "campaignFactory": "0x4FcC23A8528E26fba51BD9a2B4F417Af8C0ca89e",
+    "subscriptions": "0xeEE76a9bc472A732AB75B6E9df59bE00556C49c9",
+    "tips": "0x61bD238c09b590DAD41b3455E612c3BB6Bb55481"
+  },
   "31337": {
     "backerPass": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     "registry": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",

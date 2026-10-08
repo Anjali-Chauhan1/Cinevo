@@ -1,0 +1,10 @@
+{
+  "CinovaTestnet#BackerPass": "0xcE99a9ee7DD1af77e47036fe679fd1aDfFf2F8ac",
+  "CinovaTestnet#CinovaTestUSD": "0x26769eCfF7207a551744632B5eEc71b0056a2816",
+  "CinovaTestnet#FilmCampaignImplementation": "0x5D31343761b7d2f68cFdd014dA1767D86FA26d97",
+  "CinovaTestnet#CinovaRegistry": "0xdC0Ec3b71eb9228059A98afa52768308406e72C7",
+  "CinovaTestnet#CinovaVault": "0x97aAfb7F0776E763280369489dAa5E6ACF4abca6",
+  "CinovaTestnet#CampaignFactory": "0x4FcC23A8528E26fba51BD9a2B4F417Af8C0ca89e",
+  "CinovaTestnet#CinovaSubscriptions": "0xeEE76a9bc472A732AB75B6E9df59bE00556C49c9",
+  "CinovaTestnet#CinovaTips": "0x61bD238c09b590DAD41b3455E612c3BB6Bb55481"
+}
