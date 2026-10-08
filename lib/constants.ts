@@ -17,6 +17,9 @@ export const PAY_PER_MINUTE = {
   // last voucher on file instead of waiting indefinitely.
   AUTO_SETTLE_TIMEOUT_SECONDS: 60,
   SEGMENT_URL_TTL_SECONDS: 30,
+  // Uploaded videos stream only while the player's heartbeat (sent every
+  // VOUCHER_INTERVAL_SECONDS) is this fresh.
+  STREAM_HEARTBEAT_GRACE_SECONDS: 30,
 } as const;
 
 export const WALLET = {
@@ -73,6 +76,26 @@ export const KycStatus = {
   PENDING: "PENDING",
   VERIFIED: "VERIFIED",
   REJECTED: "REJECTED",
+} as const;
+
+export const NotificationType = {
+  CREATOR_APPROVED: "CREATOR_APPROVED",
+  CREATOR_REJECTED: "CREATOR_REJECTED",
+  KYC_APPROVED: "KYC_APPROVED",
+  KYC_REJECTED: "KYC_REJECTED",
+  MILESTONE_RELEASED: "MILESTONE_RELEASED",
+  MILESTONE_REJECTED: "MILESTONE_REJECTED",
+  CAMPAIGN_FUNDED: "CAMPAIGN_FUNDED",
+  CAMPAIGN_FAILED: "CAMPAIGN_FAILED",
+  PREMIERE_REMINDER: "PREMIERE_REMINDER",
+  NEW_TIP: "NEW_TIP",
+  NEW_SUBSCRIBER: "NEW_SUBSCRIBER",
+} as const;
+
+export const NOTIFICATIONS = {
+  // Premiere reminders go out this many minutes before start (doc: 1 hour and 10 minutes).
+  PREMIERE_REMINDER_MINUTES: [60, 10],
+  LIST_LIMIT: 30,
 } as const;
 
 export const KycSubmissionStatus = {

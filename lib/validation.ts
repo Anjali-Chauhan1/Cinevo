@@ -55,9 +55,49 @@ export const episodeCreateSchema = z
     path: ["rateRupees"],
   });
 
+const RATE_MESSAGE = "Rate must be between ₹0.10 and ₹2 per minute";
+
+const castCreditsInput = z.array(z.object({ name: z.string().trim().min(1).max(80), role: z.string().trim().min(1).max(60) })).max(40);
+
+/** Everything a creator can change from the episode editor. All optional. */
+export const episodeUpdateSchema = z.object({
+  title: z.string().trim().min(2).max(120).optional(),
+  description: z.string().max(2000).optional(),
+  thumbnailUrl: z.string().max(500).optional(),
+  castCredits: castCreditsInput.optional(),
+  // Replacing the video: a key from POST /api/uploads/video, plus its length.
+  videoKey: z.string().min(1).max(500).optional(),
+  durationSeconds: z.number().int().min(10).optional(),
+  isPaid: z.boolean().optional(),
+  rateRupees: z.number().min(0.1, RATE_MESSAGE).max(2, RATE_MESSAGE).optional(),
+  previewSeconds: z.number().int().min(0).max(600, "The free preview can be at most 10 minutes").optional(),
+  capRupees: z.number().min(1, "The price cap must be at least ₹1").max(500, "The price cap can be at most ₹500").optional(),
+  premiereAt: z.string().datetime().nullable().optional(),
+  earlyAccessUntil: z.string().datetime().nullable().optional(),
+  publicAt: z.string().datetime().nullable().optional(),
+  // Leaving DRAFT: "NOW" releases publicly straight away; "SCHEDULE" uses the dates above.
+  publish: z.enum(["NOW", "SCHEDULE"]).optional(),
+});
+
+export const hypeLevelsSchema = z.object({
+  levels: z
+    .array(
+      z.object({
+        goalType: z.enum(["TIPS", "REACTIONS"]),
+        // Rupees for TIPS, a count for REACTIONS.
+        goalValue: z.number().positive().max(10_000_000),
+        unlockTitle: z.string().trim().min(2).max(80),
+        unlockAssetUrl: z.string().trim().max(500).optional().or(z.literal("")),
+      })
+    )
+    .max(3),
+});
+
 export const voucherSchema = z.object({
   sessionToken: z.string().min(1),
   cumulativeAmountPaise: z.number().int().min(0),
+  // Seconds of video actually played since the previous tick.
+  playedSeconds: z.number().min(0).max(120).optional(),
 });
 
 export const depositSchema = z.object({ amountRupees: z.number().positive().max(10000) });
@@ -68,6 +108,8 @@ export const tipSchema = z.object({
   episodeId: z.string().optional(),
   amountRupees: z.number().min(10),
   message: z.string().max(120).optional(),
+  // Onchain mode: the tip transaction the fan's wallet already sent.
+  txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
 });
 
 export const campaignTierInput = z.object({
@@ -122,6 +164,9 @@ export const milestoneSubmitSchema = z.object({
   proofUrl: z.string().min(1),
   proofNote: z.string().max(1000).optional(),
 });
+
+/** Onchain mode: the hash of a transaction the user's wallet sent. */
+export const txHashSchema = z.object({ txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/, "Missing transaction hash") });
 
 export function rupeesToPaiseInt(rupees: number): number {
   return Math.round(rupees * 100);

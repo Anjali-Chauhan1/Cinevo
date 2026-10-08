@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { api, ApiError } from "@/lib/client-api";
 import { paise } from "@/lib/format";
+import type { Address, Hex } from "viem";
+import { paiseToUnits } from "@/lib/chain/config";
+import { useOnchain } from "@/components/web3/Onchain";
 
 interface WatchSession {
   sessionToken: string;
@@ -15,10 +18,19 @@ interface WatchSession {
 
 const VOUCHER_INTERVAL_MS = 10_000;
 
+/** Onchain mode, paid sessions: what the viewer's wallet signs each time the amount owed goes up. */
+interface VoucherParams {
+  vault: Address;
+  viewer: Address;
+  episodeId: Hex;
+  sessionId: Hex;
+  expiry: number;
+}
+
 /**
  * Owns the full pay-per-minute lifecycle for one episode: starts a session,
  * tracks actual video playback time (not wall-clock) to respect the free
- * preview, submits a strictly-increasing voucher every 10s of real playback,
+ * preview, sends a heartbeat/voucher every 10s (amounts never go down),
  * shows the live cost counter, and settles cleanly on stop/unmount/tab-close.
  */
 export function WatchPlayer({
@@ -35,6 +47,8 @@ export function WatchPlayer({
   const [error, setError] = useState<string | null>(null);
   const [capReached, setCapReached] = useState(false);
   const [starting, setStarting] = useState(false);
+  const onchain = useOnchain();
+  const voucherRef = useRef<VoucherParams | null>(null);
   const lastBilledRef = useRef(0);
 
   const stopSession = useCallback(async (token: string) => {
@@ -67,7 +81,8 @@ export function WatchPlayer({
     setStarting(true);
     setError(null);
     try {
-      const { session: s } = await api.post<{ session: WatchSession }>("/api/watch/start", { episodeId });
+      const { session: s, voucher } = await api.post<{ session: WatchSession; voucher?: VoucherParams }>("/api/watch/start", { episodeId });
+      voucherRef.current = voucher ?? null;
       setSession(s);
       setCapReached(s.cumulativeAmountPaise >= s.capRupeesPaiseSnapshot && s.capRupeesPaiseSnapshot > 0);
       lastBilledRef.current = s.cumulativeAmountPaise;
@@ -78,34 +93,71 @@ export function WatchPlayer({
     }
   }
 
-  // Billing loop: every 10s of real playback, compute what's owed from
-  // actual video.currentTime (not wall-clock, so pausing doesn't bill) and
-  // submit it as the new cumulative voucher amount.
+  // Seconds of video actually played since the last tick — measured from
+  // playback progress, so pausing and seeking never count as watch time.
+  const playedRef = useRef(0);
+  const lastTimeRef = useRef(0);
+  function handleTimeUpdate() {
+    const video = videoRef.current;
+    if (!video) return;
+    const delta = video.currentTime - lastTimeRef.current;
+    if (delta > 0 && delta < 2 && !video.seeking) playedRef.current += delta;
+    lastTimeRef.current = video.currentTime;
+  }
+
+  // Heartbeat + billing loop, every 10s for EVERY session: it keeps the
+  // session (and the video stream) alive and reports watch time. For paid
+  // sessions it also carries the voucher: what's owed is computed from
+  // video.currentTime (not wall-clock, so pausing doesn't bill), and only
+  // ever goes up until the cap.
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const hasSession = !!session;
   useEffect(() => {
-    if (!session || session.freeReason !== "NONE" || capReached) return;
+    if (!hasSession) return;
 
     const interval = setInterval(async () => {
+      const current = sessionRef.current;
       const video = videoRef.current;
-      if (!video || video.paused) return;
+      if (!current || !video) return;
 
-      const playedSeconds = video.currentTime;
-      const billableSeconds = Math.max(0, playedSeconds - session.previewSecondsSnapshot);
-      if (billableSeconds <= 0) return;
-
-      const owed = Math.min(
-        session.capRupeesPaiseSnapshot,
-        Math.round((billableSeconds * session.rateRupeesPaiseSnapshot) / 60)
-      );
-      if (owed <= lastBilledRef.current) return;
+      let amount = lastBilledRef.current;
+      if (current.freeReason === "NONE") {
+        const billableSeconds = Math.max(0, video.currentTime - current.previewSecondsSnapshot);
+        const owed = Math.min(
+          current.capRupeesPaiseSnapshot,
+          Math.round((billableSeconds * current.rateRupeesPaiseSnapshot) / 60)
+        );
+        amount = Math.max(owed, lastBilledRef.current);
+      }
+      const played = Math.round(playedRef.current);
 
       try {
+        // Onchain: the wallet silently signs the new total — that signature is
+        // what lets the vault charge it when the session settles.
+        let signature: Hex | undefined;
+        const v = voucherRef.current;
+        if (v && amount > lastBilledRef.current) {
+          signature = await onchain.signVoucher(v.vault, {
+            viewer: v.viewer,
+            episodeId: v.episodeId,
+            sessionId: v.sessionId,
+            cumulativeAmount: paiseToUnits(amount),
+            expiry: BigInt(v.expiry),
+          });
+        }
         const { session: updated } = await api.post<{ session: WatchSession }>("/api/watch/voucher", {
-          sessionToken: session.sessionToken,
-          cumulativeAmountPaise: owed,
+          sessionToken: current.sessionToken,
+          cumulativeAmountPaise: amount,
+          playedSeconds: played,
+          signature,
         });
-        lastBilledRef.current = updated.cumulativeAmountPaise;
-        setSession((prev) => (prev ? { ...prev, cumulativeAmountPaise: updated.cumulativeAmountPaise } : prev));
-        if (updated.cumulativeAmountPaise >= session.capRupeesPaiseSnapshot) {
+        playedRef.current = Math.max(0, playedRef.current - played);
+        if (updated.cumulativeAmountPaise !== lastBilledRef.current) {
+          lastBilledRef.current = updated.cumulativeAmountPaise;
+          setSession((prev) => (prev ? { ...prev, cumulativeAmountPaise: updated.cumulativeAmountPaise } : prev));
+        }
+        if (current.capRupeesPaiseSnapshot > 0 && updated.cumulativeAmountPaise >= current.capRupeesPaiseSnapshot) {
           setCapReached(true);
         }
       } catch (err) {
@@ -117,7 +169,9 @@ export function WatchPlayer({
     }, VOUCHER_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [session, capReached]);
+    // onchain.signVoucher is stable for a given wallet.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasSession]);
 
   async function handleEnded() {
     if (session) {
@@ -140,6 +194,9 @@ export function WatchPlayer({
   }
 
   const isBilled = session.freeReason === "NONE";
+  // Uploaded films stream through the session-checked route; legacy films
+  // still point straight at their URL.
+  const src = videoUrl.startsWith("upload:") ? `/api/media/video/${session.sessionToken}` : videoUrl;
   const minutesRate = (session.rateRupeesPaiseSnapshot / 100).toFixed(2);
 
   return (
@@ -147,11 +204,16 @@ export function WatchPlayer({
       <div className="relative overflow-hidden rounded-xl bg-black">
         <video
           ref={videoRef}
-          src={videoUrl}
+          src={src}
           controls
           autoPlay
           className="aspect-video w-full"
           onEnded={handleEnded}
+          onTimeUpdate={handleTimeUpdate}
+          onSeeked={() => {
+            lastTimeRef.current = videoRef.current?.currentTime ?? 0;
+          }}
+          onError={() => setError("Playback stopped. Press play on the film page to start again.")}
         />
       </div>
 

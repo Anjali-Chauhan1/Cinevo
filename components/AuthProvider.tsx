@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { api } from "@/lib/client-api";
+import { useOnchain } from "@/components/web3/Onchain";
 
 export interface CurrentUser {
   id: string;
@@ -11,6 +12,8 @@ export interface CurrentUser {
   platformRole: string;
   region: string;
   kycStatus: string;
+  /** Onchain mode: the user's embedded wallet. */
+  walletAddress?: string | null;
   creator: {
     id: string;
     handle: string;
@@ -64,10 +67,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [refresh]
   );
 
+  const onchain = useOnchain();
   const logout = useCallback(async () => {
     await api.post("/api/auth/logout");
+    // Onchain mode: also end the Privy session, or it would sign straight back in.
+    if (onchain.enabled) await onchain.logout();
     setUser(null);
-  }, []);
+  }, [onchain]);
 
   return (
     <AuthContext.Provider value={{ user, loading, refresh, login, signup, logout }}>

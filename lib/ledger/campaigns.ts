@@ -14,7 +14,9 @@ import {
   BackingStatus,
   LedgerTxType,
   KycStatus,
+  NotificationType,
 } from "@/lib/constants";
+import { notify, notifyMany, campaignBackerIds } from "@/lib/notifications";
 
 export class CampaignError extends Error {
   constructor(message: string) {
@@ -364,6 +366,7 @@ export async function sweepCampaignDeadlines() {
       data: { status: met ? CampaignStatus.FUNDED_PRODUCING : CampaignStatus.FAILED_REFUNDING },
     });
     touched.push(c.id);
+    await notifyCampaignOutcome(c.id, met ? "FUNDED" : "GOAL_MISSED");
   }
 
   const missedDelivery = await prisma.campaign.findMany({
@@ -372,9 +375,40 @@ export async function sweepCampaignDeadlines() {
   for (const c of missedDelivery) {
     await prisma.campaign.update({ where: { id: c.id }, data: { status: CampaignStatus.FAILED_REFUNDING } });
     touched.push(c.id);
+    await notifyCampaignOutcome(c.id, "DELIVERY_MISSED");
   }
 
   return touched;
+}
+
+/** Tells the creator and every backer how a campaign ended. Deduped per
+ * campaign and outcome, because overlapping sweeps can both see the change. */
+export async function notifyCampaignOutcome(campaignId: string, outcome: "FUNDED" | "GOAL_MISSED" | "DELIVERY_MISSED") {
+  const campaign = await prisma.campaign.findUniqueOrThrow({ where: { id: campaignId }, include: { creator: true } });
+  const link = `/back/${campaign.id}`;
+  const funded = outcome === "FUNDED";
+  const type = funded ? NotificationType.CAMPAIGN_FUNDED : NotificationType.CAMPAIGN_FAILED;
+
+  await notify(campaign.creator.userId, {
+    type,
+    title: funded
+      ? `${campaign.filmTitle} is funded!`
+      : outcome === "GOAL_MISSED"
+        ? `${campaign.filmTitle} didn't reach its goal`
+        : `${campaign.filmTitle} missed its delivery date`,
+    body: funded ? "Submit proof for your first milestone to start receiving funds." : "Backers can now claim refunds.",
+    link,
+    dedupeKey: `campaign:${campaign.id}:${outcome}:creator`,
+  });
+  await notifyMany(await campaignBackerIds(campaign.id), (userId) => ({
+    type,
+    title: funded ? `${campaign.filmTitle} is funded` : `Refund available for ${campaign.filmTitle}`,
+    body: funded
+      ? "The film you backed hit its goal. You'll hear as each milestone completes."
+      : "The campaign didn't succeed. Claim your refund on the campaign page.",
+    link,
+    dedupeKey: `campaign:${campaign.id}:${outcome}:${userId}`,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -575,6 +609,21 @@ export async function linkCampaignToEpisode(creatorId: string, campaignId: strin
   if (campaign.creatorId !== creatorId) throw new CampaignError("You don't own this campaign");
   const episode = await prisma.episode.findUniqueOrThrow({ where: { id: episodeId } });
   if (episode.creatorId !== creatorId) throw new CampaignError("You don't own this episode");
+  const failedStatuses: string[] = [CampaignStatus.FAILED_REFUNDING, CampaignStatus.REFUNDED, CampaignStatus.CANCELLED];
+  if (failedStatuses.includes(campaign.status)) {
+    throw new CampaignError("This campaign didn't succeed, so it can't share in the film's revenue");
+  }
+  const alreadyLinked = await prisma.campaign.findUnique({ where: { fundedEpisodeId: episodeId } });
+  if (alreadyLinked && alreadyLinked.id !== campaignId) {
+    throw new CampaignError(`This episode already shares revenue with "${alreadyLinked.filmTitle}"`);
+  }
 
   return prisma.campaign.update({ where: { id: campaignId }, data: { fundedEpisodeId: episodeId } });
+}
+
+/** Stops routing an episode's revenue through a campaign's waterfall. */
+export async function unlinkCampaignFromEpisode(creatorId: string, campaignId: string) {
+  const campaign = await prisma.campaign.findUniqueOrThrow({ where: { id: campaignId } });
+  if (campaign.creatorId !== creatorId) throw new CampaignError("You don't own this campaign");
+  return prisma.campaign.update({ where: { id: campaignId }, data: { fundedEpisodeId: null } });
 }

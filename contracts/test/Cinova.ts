@@ -12,6 +12,7 @@ const DAY = 24 * 60 * 60;
 const WITHDRAW_DELAY = 10 * 60;
 
 async function deployCinova() {
+  // `server` is the Cinova backend: it holds PUBLISHER_ROLE and submits vouchers.
   const [admin, treasury, creator, viewer, fan2, investor, server, stranger] = await ethers.getSigners();
 
   const usdc = await ethers.deployContract("MockUSDC");
@@ -32,8 +33,10 @@ async function deployCinova() {
   const spenderRole = await registry.VAULT_SPENDER_ROLE();
   await registry.grantRole(spenderRole, subscriptions);
   await registry.grantRole(spenderRole, tips);
+  await registry.grantRole(await registry.PUBLISHER_ROLE(), server.address);
   await backerPass.grantRole(await backerPass.FACTORY_ROLE(), factory);
   await registry.setCampaignFactory(factory);
+  await registry.setVault(vault);
   await registry.registerCreator(creator.address);
 
   for (const who of [viewer, fan2, investor]) {
@@ -88,6 +91,32 @@ async function withPaidEpisode() {
   return { ...f, episodeId };
 }
 
+function campaignConfig(now: bigint, overrides: Record<string, unknown> = {}) {
+  return {
+    goal: usd(20),
+    deadline: now + BigInt(20 * DAY),
+    deliveryDate: now + BigInt(90 * DAY),
+    tierPrices: [usd(1), usd(6)],
+    tierLimits: [0, 2],
+    milestoneBps: [3000, 4000, 3000],
+    unitsEnabled: true,
+    unitPrice: usd(1),
+    maxUnitSpendPerBacker: usd(60),
+    unitHardCap: usd(150),
+    ...overrides,
+  };
+}
+
+async function campaignFixture() {
+  const f = await deployCinova();
+  const config = campaignConfig(BigInt(await time.latest()));
+  const campaignAddress = await f.factory.connect(f.creator).createCampaign.staticCall(config);
+  await f.factory.connect(f.creator).createCampaign(config);
+  const campaign = await ethers.getContractAt("FilmCampaign", campaignAddress);
+  for (const who of [f.viewer, f.fan2, f.investor]) await f.usdc.connect(who).approve(campaign, ethers.MaxUint256);
+  return { ...f, campaign, config };
+}
+
 describe("CinovaRegistry", () => {
   it("only verifiers can register creators", async () => {
     const { registry, stranger } = await loadFixture(deployCinova);
@@ -123,18 +152,73 @@ describe("CinovaRegistry", () => {
   });
 });
 
+describe("Publisher (the Cinova server acting for creators)", () => {
+  it("registers and prices episodes for verified creators only", async () => {
+    const { registry, server, creator, stranger } = await loadFixture(deployCinova);
+    await expect(registry.connect(server).registerEpisodeFor(creator.address, id("ep"), usd(0.006), 120, usd(0.2), true))
+      .to.emit(registry, "EpisodeRegistered")
+      .withArgs(id("ep"), creator.address, usd(0.006), 120, usd(0.2), true);
+    await registry.connect(server).setPricingFor(id("ep"), usd(0.01), 60, usd(1), true);
+    expect((await registry.getEpisode(id("ep"))).ratePerMinute).to.equal(usd(0.01));
+
+    await expect(
+      registry.connect(server).registerEpisodeFor(stranger.address, id("ep2"), 0, 0, 0, false)
+    ).to.be.revertedWithCustomError(registry, "NotCreator");
+    await expect(
+      registry.connect(stranger).registerEpisodeFor(creator.address, id("ep3"), 0, 0, 0, false)
+    ).to.be.revertedWithCustomError(registry, "AccessControlUnauthorizedAccount");
+  });
+
+  it("launches campaigns and sets subscription prices for creators", async () => {
+    const { factory, subscriptions, server, creator, stranger } = await loadFixture(deployCinova);
+    const config = campaignConfig(BigInt(await time.latest()));
+    const address = await factory.connect(server).createCampaignFor.staticCall(creator.address, config);
+    await factory.connect(server).createCampaignFor(creator.address, config);
+    expect(await (await ethers.getContractAt("FilmCampaign", address)).creator()).to.equal(creator.address);
+    await expect(factory.connect(stranger).createCampaignFor(creator.address, config)).to.be.revertedWithCustomError(
+      factory,
+      "NotPublisher"
+    );
+
+    await subscriptions.connect(server).setMonthlyPriceFor(creator.address, usd(3));
+    expect(await subscriptions.monthlyPrice(creator.address)).to.equal(usd(3));
+    await expect(subscriptions.connect(stranger).setMonthlyPriceFor(creator.address, 1)).to.be.revertedWithCustomError(
+      subscriptions,
+      "NotPublisher"
+    );
+  });
+
+  it("can never move anyone's money", async () => {
+    const { vault, server, viewer } = await loadFixture(deployCinova);
+    await expect(vault.connect(server).spend(viewer.address, server.address, 1)).to.be.revertedWithCustomError(
+      vault,
+      "NotSpender"
+    );
+  });
+});
+
 describe("CinovaVault — pay-per-minute", () => {
-  it("settles a voucher with a 90/10 split", async () => {
-    const { vault, usdc, creator, treasury, viewer, server, episodeId, signVoucher } =
-      await loadFixture(withPaidEpisode);
+  it("settles a voucher with a 90/10 split into vault balances", async () => {
+    const { vault, creator, treasury, viewer, server, episodeId, signVoucher } = await loadFixture(withPaidEpisode);
     const { voucher, signature } = await signVoucher(viewer, episodeId, id("s1"), usd(0.1));
 
     await expect(vault.connect(server).settle(voucher, signature))
       .to.emit(vault, "Settled")
       .withArgs(viewer.address, episodeId, id("s1"), usd(0.1), usd(0.09), 0, usd(0.01));
-    expect(await usdc.balanceOf(creator.address)).to.equal(usd(0.09));
-    expect(await usdc.balanceOf(treasury.address)).to.equal(usd(0.01));
+    expect(await vault.balanceOf(creator.address)).to.equal(usd(0.09));
+    expect(await vault.balanceOf(treasury.address)).to.equal(usd(0.01));
     expect(await vault.balanceOf(viewer.address)).to.equal(usd(100) - usd(0.1));
+  });
+
+  it("lets creators withdraw what they earned, after the delay", async () => {
+    const { vault, usdc, creator, viewer, episodeId, signVoucher } = await loadFixture(withPaidEpisode);
+    const { voucher, signature } = await signVoucher(viewer, episodeId, id("s1"), usd(0.2));
+    await vault.settle(voucher, signature);
+
+    await vault.connect(creator).requestWithdraw(usd(0.18));
+    await time.increase(WITHDRAW_DELAY);
+    await vault.connect(creator).withdraw();
+    expect(await usdc.balanceOf(creator.address)).to.equal(usd(0.18));
   });
 
   it("pays only the increase, and rejects replayed or older vouchers", async () => {
@@ -152,12 +236,10 @@ describe("CinovaVault — pay-per-minute", () => {
 
   it("stops charging at the episode cap, across sessions (free rewatch)", async () => {
     const { vault, viewer, episodeId, signVoucher } = await loadFixture(withPaidEpisode);
-    // Cap is $0.20. First session runs past it.
     const s1 = await signVoucher(viewer, episodeId, id("s1"), usd(0.35));
     await vault.settle(s1.voucher, s1.signature);
     expect(await vault.episodePaid(viewer.address, episodeId)).to.equal(usd(0.2));
 
-    // A rewatch in a new session costs nothing.
     const s2 = await signVoucher(viewer, episodeId, id("s2"), usd(0.1));
     await expect(vault.settle(s2.voucher, s2.signature))
       .to.emit(vault, "Settled")
@@ -177,7 +259,6 @@ describe("CinovaVault — pay-per-minute", () => {
     expect(await vault.balanceOf(stranger.address)).to.equal(0);
     expect(await vault.episodePaid(stranger.address, episodeId)).to.equal(usd(0.3));
 
-    // Same voucher, after topping up: only the unpaid $0.20 is collected.
     await vault.connect(stranger).deposit(usd(1));
     await vault.settle(voucher, signature);
     expect(await vault.balanceOf(stranger.address)).to.equal(usd(0.8));
@@ -187,7 +268,6 @@ describe("CinovaVault — pay-per-minute", () => {
   it("rejects forged, expired and non-paid-episode vouchers", async () => {
     const { vault, registry, creator, viewer, fan2, episodeId, signVoucher } = await loadFixture(withPaidEpisode);
 
-    // fan2 signs a voucher claiming to be the viewer.
     const forged = await signVoucher(fan2, episodeId, id("s1"), usd(0.1));
     await expect(
       vault.settle({ ...forged.voucher, viewer: viewer.address }, forged.signature)
@@ -206,11 +286,9 @@ describe("CinovaVault — pay-per-minute", () => {
     const before = await usdc.balanceOf(viewer.address);
     const { voucher, signature } = await signVoucher(viewer, episodeId, id("s1"), usd(0.15));
 
-    // Watch, then try to empty the balance straight away.
     await vault.connect(viewer).requestWithdraw(usd(100));
     await expect(vault.connect(viewer).withdraw()).to.be.revertedWithCustomError(vault, "WithdrawNotReady");
 
-    // The server settles inside the window.
     await vault.settle(voucher, signature);
     await time.increase(WITHDRAW_DELAY);
     await vault.connect(viewer).withdraw();
@@ -237,24 +315,22 @@ describe("CinovaSubscriptions — per-second", () => {
   }
 
   it("accrues by the second and anyone can trigger the charge", async () => {
-    const { subscriptions, vault, usdc, viewer, creator, treasury, server } = await loadFixture(subscribed);
+    const { subscriptions, vault, viewer, creator, treasury, server } = await loadFixture(subscribed);
     await time.increase(15 * DAY);
-    // Half a 30-day period ≈ half the monthly price (a second or two of mining drift).
     expect(await subscriptions.owed(viewer.address, creator.address)).to.be.closeTo(usd(1.5), usd(0.0001));
 
     await subscriptions.connect(server).claimAccrued(viewer.address, creator.address);
     const charged = usd(100) - (await vault.balanceOf(viewer.address));
     expect(charged).to.be.closeTo(usd(1.5), usd(0.0001));
-    expect(await usdc.balanceOf(creator.address)).to.equal(charged - charged / 10n);
-    expect(await usdc.balanceOf(treasury.address)).to.equal(charged / 10n);
+    expect(await vault.balanceOf(creator.address)).to.equal(charged - charged / 10n);
+    expect(await vault.balanceOf(treasury.address)).to.equal(charged / 10n);
   });
 
   it("cancel charges up to that second and stops", async () => {
     const { subscriptions, vault, viewer, creator } = await loadFixture(subscribed);
     await time.increase(3 * DAY);
     await subscriptions.connect(viewer).cancel(creator.address);
-    const afterCancel = await vault.balanceOf(viewer.address);
-    expect(usd(100) - afterCancel).to.be.closeTo(usd(0.3), usd(0.0001));
+    expect(usd(100) - (await vault.balanceOf(viewer.address))).to.be.closeTo(usd(0.3), usd(0.0001));
 
     await time.increase(30 * DAY);
     expect(await subscriptions.owed(viewer.address, creator.address)).to.equal(0);
@@ -291,12 +367,13 @@ describe("CinovaSubscriptions — per-second", () => {
 
 describe("CinovaTips", () => {
   it("tips instantly with a 90/10 split", async () => {
-    const { tips, usdc, creator, treasury, viewer } = await loadFixture(deployCinova);
+    const { tips, vault, creator, treasury, viewer } = await loadFixture(deployCinova);
     await expect(tips.connect(viewer).tip(creator.address, id("episode-4"), usd(1), id("Loved it!")))
       .to.emit(tips, "Tipped")
       .withArgs(viewer.address, creator.address, id("episode-4"), usd(1), usd(0.9), usd(0.1), id("Loved it!"));
-    expect(await usdc.balanceOf(creator.address)).to.equal(usd(0.9));
-    expect(await usdc.balanceOf(treasury.address)).to.equal(usd(0.1));
+    expect(await vault.balanceOf(creator.address)).to.equal(usd(0.9));
+    expect(await vault.balanceOf(treasury.address)).to.equal(usd(0.1));
+    expect(await vault.balanceOf(viewer.address)).to.equal(usd(99));
   });
 
   it("enforces the minimum, real creators, and no self-tipping", async () => {
@@ -308,28 +385,6 @@ describe("CinovaTips", () => {
 });
 
 describe("FilmCampaign — backing, milestones, refunds", () => {
-  async function campaignFixture() {
-    const f = await deployCinova();
-    const now = BigInt(await time.latest());
-    const config = {
-      goal: usd(20),
-      deadline: now + BigInt(20 * DAY),
-      deliveryDate: now + BigInt(90 * DAY),
-      tierPrices: [usd(1), usd(6)],
-      tierLimits: [0, 2],
-      milestoneBps: [3000, 4000, 3000],
-      unitsEnabled: true,
-      unitPrice: usd(1),
-      maxUnitSpendPerBacker: usd(60),
-      unitHardCap: usd(150),
-    };
-    const campaignAddress = await f.factory.connect(f.creator).createCampaign.staticCall(config);
-    await f.factory.connect(f.creator).createCampaign(config);
-    const campaign = await ethers.getContractAt("FilmCampaign", campaignAddress);
-    for (const who of [f.viewer, f.fan2, f.investor]) await f.usdc.connect(who).approve(campaign, ethers.MaxUint256);
-    return { ...f, campaign, config };
-  }
-
   it("escrows backing and issues a soulbound pass", async () => {
     const { campaign, backerPass, usdc, viewer, fan2 } = await loadFixture(campaignFixture);
     await expect(campaign.connect(viewer).back(1, ACK)).to.emit(campaign, "Backed").withArgs(viewer.address, 1, usd(6), ACK);
@@ -342,6 +397,28 @@ describe("FilmCampaign — backing, milestones, refunds", () => {
     ).to.be.revertedWithCustomError(backerPass, "Soulbound");
   });
 
+  it("backs straight from the vault balance, no wallet tokens needed", async () => {
+    const { campaign, vault, backerPass, usdc, viewer, stranger } = await loadFixture(campaignFixture);
+    await expect(vault.connect(viewer).backCampaign(campaign, 1, ACK))
+      .to.emit(campaign, "Backed")
+      .withArgs(viewer.address, 1, usd(6), ACK);
+    expect(await vault.balanceOf(viewer.address)).to.equal(usd(94));
+    expect(await usdc.balanceOf(campaign)).to.equal(usd(6));
+    expect(await campaign.contributionOf(viewer.address)).to.equal(usd(6));
+    expect(await backerPass.balanceOf(viewer.address, await backerPass.tokenIdFor(campaign, 1))).to.equal(1);
+    // The vault keeps no leftover allowance to the campaign.
+    expect(await usdc.allowance(vault, campaign)).to.equal(0);
+
+    await expect(vault.connect(stranger).backCampaign(campaign, 0, ACK)).to.be.revertedWithCustomError(vault, "InsufficientBalance");
+    await expect(vault.connect(viewer).backCampaign(stranger.address, 0, ACK)).to.be.revertedWithCustomError(vault, "UnknownCampaign");
+  });
+
+  it("only the vault can back on someone's behalf or route revenue", async () => {
+    const { campaign, viewer, stranger } = await loadFixture(campaignFixture);
+    await expect(campaign.connect(stranger).backFor(viewer.address, 0, ACK)).to.be.revertedWithCustomError(campaign, "NotVault");
+    await expect(campaign.connect(stranger).distributeRevenue(usd(1))).to.be.revertedWithCustomError(campaign, "NotVault");
+  });
+
   it("requires the risk acknowledgement and respects tier limits", async () => {
     const { campaign, viewer, fan2 } = await loadFixture(campaignFixture);
     await expect(campaign.connect(viewer).back(0, ethers.ZeroHash)).to.be.revertedWithCustomError(campaign, "MissingAcknowledgement");
@@ -350,15 +427,18 @@ describe("FilmCampaign — backing, milestones, refunds", () => {
     await expect(campaign.connect(viewer).back(1, ACK)).to.be.revertedWithCustomError(campaign, "TierSoldOut");
   });
 
-  it("releases milestones only with proof and approval, minus the platform fee", async () => {
-    const { campaign, usdc, admin, creator, viewer, investor, registry, treasury, config } = await loadFixture(campaignFixture);
+  it("releases milestones only with proof and approval, into the creator's balance", async () => {
+    const { campaign, vault, admin, creator, server, stranger, viewer, investor, registry, treasury, config } =
+      await loadFixture(campaignFixture);
     await registry.setInvestorVerified(investor.address, true);
     await campaign.connect(viewer).back(1, ACK); // $6
     await campaign.connect(investor).buyUnits(14, ACK); // $14 -> goal $20 met
     await time.increaseTo(config.deadline);
 
     await expect(campaign.connect(admin).releaseMilestone(0)).to.be.revertedWithCustomError(campaign, "NoProof");
-    await campaign.connect(creator).submitMilestoneProof(0, id("script.pdf"));
+    await expect(campaign.connect(stranger).submitMilestoneProof(0, id("x"))).to.be.revertedWithCustomError(campaign, "NotCreator");
+    // The server can submit proof the creator uploaded in the app.
+    await campaign.connect(server).submitMilestoneProof(0, id("script.pdf"));
     await expect(campaign.connect(creator).releaseMilestone(0)).to.be.revertedWithCustomError(campaign, "NotApprover");
 
     await expect(campaign.connect(admin).releaseMilestone(0))
@@ -371,18 +451,18 @@ describe("FilmCampaign — backing, milestones, refunds", () => {
       await campaign.connect(admin).releaseMilestone(i);
     }
     expect(await campaign.state()).to.equal(2); // Delivered
-    expect(await usdc.balanceOf(creator.address)).to.equal(usd(18));
-    expect(await usdc.balanceOf(treasury.address)).to.equal(usd(2));
+    expect(await vault.balanceOf(creator.address)).to.equal(usd(18));
+    expect(await vault.balanceOf(treasury.address)).to.equal(usd(2));
   });
 
-  it("refunds everyone in full when the goal is missed, and revokes passes", async () => {
-    const { campaign, backerPass, usdc, viewer, config } = await loadFixture(campaignFixture);
-    const before = await usdc.balanceOf(viewer.address);
-    await campaign.connect(viewer).back(1, ACK);
+  it("refunds into the backer's balance when the goal is missed, and revokes passes", async () => {
+    const { campaign, vault, backerPass, viewer, config } = await loadFixture(campaignFixture);
+    await vault.connect(viewer).backCampaign(campaign, 1, ACK);
+    expect(await vault.balanceOf(viewer.address)).to.equal(usd(94));
     await time.increaseTo(config.deadline);
 
     await expect(campaign.connect(viewer).claimRefund()).to.emit(campaign, "Refunded").withArgs(viewer.address, usd(6));
-    expect(await usdc.balanceOf(viewer.address)).to.equal(before);
+    expect(await vault.balanceOf(viewer.address)).to.equal(usd(100));
     expect(await backerPass.balanceOf(viewer.address, await backerPass.tokenIdFor(campaign, 1))).to.equal(0);
     await expect(campaign.connect(viewer).claimRefund()).to.be.revertedWithCustomError(campaign, "NothingToClaim");
   });
@@ -398,7 +478,6 @@ describe("FilmCampaign — backing, milestones, refunds", () => {
     await campaign.connect(admin).releaseMilestone(0); // $6 of $20 released
 
     await time.increaseTo(config.deliveryDate + 1n);
-    // $14 left, shared pro-rata: viewer 8/20, fan2 12/20.
     expect(await campaign.refundAmount(viewer.address)).to.equal(0); // not failed until synced
     await campaign.syncState();
     expect(await campaign.state()).to.equal(3); // Failed
@@ -406,42 +485,44 @@ describe("FilmCampaign — backing, milestones, refunds", () => {
     expect(await campaign.refundAmount(fan2.address)).to.equal(usd(8.4));
   });
 
-  it("gates Producer Units behind KYC and the per-person cap", async () => {
-    const { campaign, registry, investor, viewer } = await loadFixture(campaignFixture);
+  it("gates Producer Units behind KYC and the per-person cap, from wallet or balance", async () => {
+    const { campaign, vault, registry, investor, viewer } = await loadFixture(campaignFixture);
     await expect(campaign.connect(investor).buyUnits(10, ACK)).to.be.revertedWithCustomError(campaign, "NotVerifiedInvestor");
+    await expect(vault.connect(viewer).buyUnits(campaign, 1, ACK)).to.be.revertedWithCustomError(campaign, "NotVerifiedInvestor");
     await registry.setInvestorVerified(investor.address, true);
     await expect(campaign.connect(investor).buyUnits(61, ACK)).to.be.revertedWithCustomError(campaign, "OverPersonalCap");
-    await campaign.connect(investor).buyUnits(60, ACK);
-    await expect(campaign.connect(viewer).buyUnits(1, ACK)).to.be.revertedWithCustomError(campaign, "NotVerifiedInvestor");
+    await campaign.connect(investor).buyUnits(50, ACK);
+
+    await vault.connect(investor).deposit(usd(20));
+    await vault.connect(investor).buyUnits(campaign, 10, ACK);
+    expect(await campaign.unitsOf(investor.address)).to.equal(60);
+    await expect(vault.connect(investor).buyUnits(campaign, 1, ACK)).to.be.revertedWithCustomError(campaign, "OverPersonalCap");
   });
 
-  it("only lets creators route episode revenue to their own campaigns", async () => {
-    const { registry, creator, stranger, campaign } = await loadFixture(campaignFixture);
+  it("only lets an episode share revenue with its own creator's campaign", async () => {
+    const { registry, server, creator, stranger, campaign } = await loadFixture(campaignFixture);
     await registry.connect(creator).registerEpisode(id("film"), usd(0.006), 120, usd(500), true);
     await expect(registry.connect(creator).setRevenueRecipient(id("film"), stranger.address)).to.be.revertedWithCustomError(
       registry,
       "InvalidRecipient"
     );
-    await registry.connect(creator).setRevenueRecipient(id("film"), campaign);
+    await registry.connect(server).setRevenueRecipientFor(id("film"), campaign);
+    expect((await registry.getEpisode(id("film"))).revenueRecipient).to.equal(await campaign.getAddress());
   });
 });
 
 describe("Revenue waterfall (Producer Units)", () => {
   async function fundedFilm() {
     const f = await deployCinova();
-    const now = BigInt(await time.latest());
-    const config = {
+    const config = campaignConfig(BigInt(await time.latest()), {
       goal: usd(100),
-      deadline: now + BigInt(20 * DAY),
-      deliveryDate: now + BigInt(365 * DAY),
+      deliveryDate: BigInt(await time.latest()) + BigInt(365 * DAY),
       tierPrices: [usd(1)],
       tierLimits: [0],
       milestoneBps: [10000],
-      unitsEnabled: true,
-      unitPrice: usd(1),
       maxUnitSpendPerBacker: usd(100),
       unitHardCap: 0,
-    };
+    });
     const address = await f.factory.connect(f.creator).createCampaign.staticCall(config);
     await f.factory.connect(f.creator).createCampaign(config);
     const campaign = await ethers.getContractAt("FilmCampaign", address);
@@ -461,13 +542,15 @@ describe("Revenue waterfall (Producer Units)", () => {
 
   it("pays unit holders 50% of gross until they recoup 120%, then 20%", async () => {
     const { vault, campaign, usdc, creator, viewer, investor, treasury, episodeId, signVoucher } = await loadFixture(fundedFilm);
-    const creatorBefore = await usdc.balanceOf(creator.address);
 
     // $100 gross: $10 fee, $50 units, $40 creator.
     const first = await signVoucher(viewer, episodeId, id("s1"), usd(100));
     await expect(vault.settle(first.voucher, first.signature))
       .to.emit(vault, "Settled")
       .withArgs(viewer.address, episodeId, id("s1"), usd(100), usd(40), usd(50), usd(10));
+    // $100 escrow from the units sale + only the units' $50 share of this payment.
+    expect(await usdc.balanceOf(campaign)).to.equal(usd(150));
+    expect(await usdc.allowance(vault, campaign)).to.equal(0);
 
     // Next $200 gross crosses the $120 recoup line after $140 more gross:
     // $140 at 50% = $70, then $60 at 20% = $12 -> units $82, creator $98.
@@ -485,18 +568,22 @@ describe("Revenue waterfall (Producer Units)", () => {
 
     expect(await campaign.claimableRevenue(investor.address)).to.equal(usd(152));
     await campaign.connect(investor).claimRevenue();
-    expect(await usdc.balanceOf(creator.address)).to.equal(creatorBefore + usd(208));
-    expect(await usdc.balanceOf(treasury.address)).to.equal(usd(40));
+    expect(await vault.balanceOf(investor.address)).to.equal(usd(152));
+    expect(await vault.balanceOf(creator.address)).to.equal(usd(208));
+    expect(await vault.balanceOf(treasury.address)).to.equal(usd(40));
   });
 
   it("splits revenue between holders in proportion to their units", async () => {
     const f = await deployCinova();
-    const now = BigInt(await time.latest());
-    const config = {
-      goal: usd(40), deadline: now + BigInt(20 * DAY), deliveryDate: now + BigInt(365 * DAY),
-      tierPrices: [usd(1)], tierLimits: [0], milestoneBps: [10000],
-      unitsEnabled: true, unitPrice: usd(1), maxUnitSpendPerBacker: usd(100), unitHardCap: 0,
-    };
+    const config = campaignConfig(BigInt(await time.latest()), {
+      goal: usd(40),
+      deliveryDate: BigInt(await time.latest()) + BigInt(365 * DAY),
+      tierPrices: [usd(1)],
+      tierLimits: [0],
+      milestoneBps: [10000],
+      maxUnitSpendPerBacker: usd(100),
+      unitHardCap: 0,
+    });
     const address = await f.factory.connect(f.creator).createCampaign.staticCall(config);
     await f.factory.connect(f.creator).createCampaign(config);
     const campaign = await ethers.getContractAt("FilmCampaign", address);
@@ -508,9 +595,11 @@ describe("Revenue waterfall (Producer Units)", () => {
     await campaign.connect(f.fan2).buyUnits(10, ACK);
     await time.increaseTo(config.deadline);
 
-    // Revenue arriving from any payer (not just the vault) is split the same way.
-    await f.usdc.connect(f.viewer).approve(campaign, ethers.MaxUint256);
-    await campaign.connect(f.viewer).distributeRevenue(usd(18)); // net $18 = $20 gross -> units $10
+    await f.registry.connect(f.creator).registerEpisode(id("film"), usd(0.006), 120, usd(1000), true);
+    await f.registry.connect(f.creator).setRevenueRecipient(id("film"), campaign);
+    const { voucher, signature } = await f.signVoucher(f.viewer, id("film"), id("s1"), usd(20));
+    await f.vault.settle(voucher, signature); // $20 gross -> $18 net -> units $10
+
     expect(await campaign.claimableRevenue(f.investor.address)).to.equal(usd(7.5));
     expect(await campaign.claimableRevenue(f.fan2.address)).to.equal(usd(2.5));
   });

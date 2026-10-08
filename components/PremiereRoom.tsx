@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
-import { api } from "@/lib/client-api";
+import { api, ApiError } from "@/lib/client-api";
+import { useAuth } from "@/components/AuthProvider";
 import { paise } from "@/lib/format";
 import { TipButton } from "@/components/TipButton";
 
@@ -33,18 +34,36 @@ interface HypeProgress {
 }
 
 const REACTIONS = ["😂", "😮", "🔥", "😢", "👏"];
+const SLOW_MODE_OPTIONS = [0, 5, 15, 30, 60];
+const TIMEOUT_MINUTES = 5;
+
+/** A chat line the room shows locally, e.g. "Asha was timed out". */
+function systemLine(text: string): ChatMessage {
+  return {
+    id: `system-${Math.random()}`,
+    text,
+    type: "SYSTEM",
+    createdAt: new Date().toISOString(),
+    user: { id: "system", displayName: "" },
+  };
+}
 
 export function PremiereRoom({
   episodeId,
   creatorId,
+  creatorUserId,
   isModerator,
   viewerSignedIn,
 }: {
   episodeId: string;
   creatorId: string;
+  /** The creator's account id, so their messages can be marked. */
+  creatorUserId?: string;
   isModerator: boolean;
   viewerSignedIn: boolean;
 }) {
+  const { user } = useAuth();
+  const [slowMode, setSlowMode] = useState(0);
   const socketRef = useRef<Socket | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [viewerCount, setViewerCount] = useState(0);
@@ -59,10 +78,11 @@ export function PremiereRoom({
   useEffect(() => {
     api.get<{ messages: ChatMessage[] }>(`/api/episodes/${episodeId}/chat`).then((d) => setMessages(d.messages));
     api
-      .get<{ hypeLevels: HypeLevel[]; hypeProgress: HypeProgress | null }>(`/api/episodes/${episodeId}`)
+      .get<{ hypeLevels: HypeLevel[]; hypeProgress: HypeProgress | null; slowModeSeconds?: number }>(`/api/episodes/${episodeId}`)
       .then((d) => {
         setHypeLevels(d.hypeLevels ?? []);
         setHypeProgress(d.hypeProgress ?? null);
+        setSlowMode(d.slowModeSeconds ?? 0);
       });
   }, [episodeId]);
 
@@ -80,6 +100,20 @@ export function PremiereRoom({
       setMessages((prev) => prev.filter((m) => m.id !== messageId))
     );
     socket.on("chat_error", ({ message }: { message: string }) => setChatError(message));
+    socket.on(
+      "user_moderated",
+      ({ displayName, action, minutes, clearedMessageIds }: { displayName: string; action: string; minutes: number | null; clearedMessageIds: string[] }) => {
+        const cleared = new Set(clearedMessageIds);
+        setMessages((prev) => [
+          ...prev.filter((m) => !cleared.has(m.id)),
+          systemLine(action === "BAN" ? `${displayName} was banned from chat` : `${displayName} was timed out for ${minutes} minutes`),
+        ]);
+      }
+    );
+    socket.on("slow_mode", ({ seconds }: { seconds: number }) => {
+      setSlowMode(seconds);
+      setMessages((prev) => [...prev, systemLine(seconds > 0 ? `Slow mode on: one message every ${seconds}s` : "Slow mode off")]);
+    });
     socket.on("reaction", ({ emoji }: { emoji: string }) => {
       const id = Math.random();
       // Random sideways drift so a burst of the same emoji fans out instead of stacking.
@@ -116,8 +150,16 @@ export function PremiereRoom({
     socketRef.current?.emit("reaction", { episodeId, emoji });
   }
 
-  function moderate(messageId: string) {
-    socketRef.current?.emit("mod_delete", { messageId });
+  // Moderation goes through the REST route, which checks permissions and
+  // broadcasts the result to everyone in the room.
+  async function moderate(body: Record<string, unknown>) {
+    setChatError(null);
+    try {
+      await api.post(`/api/episodes/${episodeId}/moderation`, body);
+      if (body.action === "SLOW_MODE") setSlowMode(Number(body.seconds));
+    } catch (err) {
+      setChatError(err instanceof ApiError ? err.message : "Moderation action failed");
+    }
   }
 
   const currentLevel = hypeLevels.find((l) => l.level === (hypeProgress?.lastLevelReached ?? 0) + 1);
@@ -138,8 +180,29 @@ export function PremiereRoom({
         <span className="flex items-center gap-1.5">
           <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> {viewerCount} watching
         </span>
-        {viewerSignedIn && <TipButton creatorId={creatorId} episodeId={episodeId} />}
+        <div className="flex items-center gap-2">
+          {isModerator && (
+            <label className="flex items-center gap-1 text-xs text-[var(--text-dim)]">
+              Slow mode
+              <select
+                className="rounded-md bg-[var(--surface-raised)] px-1 py-0.5 text-xs text-[var(--text)]"
+                value={slowMode}
+                onChange={(e) => moderate({ action: "SLOW_MODE", seconds: Number(e.target.value) })}
+              >
+                {SLOW_MODE_OPTIONS.map((s) => (
+                  <option key={s} value={s}>{s === 0 ? "Off" : `${s}s`}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {viewerSignedIn && <TipButton creatorId={creatorId} episodeId={episodeId} />}
+        </div>
       </div>
+      {slowMode > 0 && !isModerator && (
+        <div className="border-b border-[var(--border)] px-3 py-1 text-center text-xs text-[var(--text-dim)]">
+          Slow mode: one message every {slowMode}s
+        </div>
+      )}
 
       {currentLevel && (
         <div className="border-b border-[var(--border)] px-3 py-2">
@@ -157,9 +220,14 @@ export function PremiereRoom({
       )}
 
       <div ref={scrollRef} className="relative flex-1 overflow-y-auto px-3 py-2">
-        {messages.map((m) => (
-          <div key={m.id} className={`mb-2 text-sm ${m.type === "TIP_HIGHLIGHT" ? "rounded-lg bg-[var(--accent)]/10 p-2" : ""}`}>
+        {messages.map((m) => m.type === "SYSTEM" ? (
+          <p key={m.id} className="mb-2 text-center text-xs italic text-[var(--text-dim)]">{m.text}</p>
+        ) : (
+          <div key={m.id} className={`group mb-2 text-sm ${m.type === "TIP_HIGHLIGHT" ? "rounded-lg bg-[var(--accent)]/10 p-2" : ""}`}>
             <span className="font-medium">{m.user.displayName}</span>
+            {creatorUserId && m.user.id === creatorUserId && (
+              <span className="badge ml-1 bg-[var(--accent)] text-[var(--bg)]">Creator</span>
+            )}
             {m.badges?.subscriberMonths ? (
               <span className="badge ml-1 bg-blue-500/15 text-blue-400">sub·{m.badges.subscriberMonths}mo</span>
             ) : null}
@@ -169,9 +237,31 @@ export function PremiereRoom({
             )}
             <span className="ml-1 text-[var(--text)]">{m.text}</span>
             {isModerator && m.type === "MESSAGE" && (
-              <button onClick={() => moderate(m.id)} className="ml-2 text-xs text-red-400 hover:underline">
-                delete
-              </button>
+              <span className="ml-2 inline-flex gap-2 text-xs opacity-60 group-hover:opacity-100 group-focus-within:opacity-100">
+                <button onClick={() => moderate({ action: "DELETE", messageId: m.id })} className="text-red-400 hover:underline">
+                  Delete
+                </button>
+                {m.user.id !== user?.id && m.user.id !== creatorUserId && (
+                  <>
+                    <button
+                      onClick={() => moderate({ action: "TIMEOUT", targetUserId: m.user.id, minutes: TIMEOUT_MINUTES })}
+                      className="text-red-400 hover:underline"
+                    >
+                      Timeout {TIMEOUT_MINUTES}m
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Ban ${m.user.displayName} from this premiere's chat?`)) {
+                          moderate({ action: "BAN", targetUserId: m.user.id });
+                        }
+                      }}
+                      className="text-red-400 hover:underline"
+                    >
+                      Ban
+                    </button>
+                  </>
+                )}
+              </span>
             )}
           </div>
         ))}

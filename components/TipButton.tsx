@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { keccak256, toBytes, zeroHash, type Address } from "viem";
 import { api, ApiError } from "@/lib/client-api";
+import { useOnchain } from "@/components/web3/Onchain";
+import { getAddresses, paiseToUnits, toChainId } from "@/lib/chain/config";
+import { tipsAbi } from "@/lib/chain/abis";
 
 const PRESETS = [10, 50, 100, 500];
 
@@ -20,12 +24,34 @@ export function TipButton({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
+  const chain = useOnchain();
+
+  /** Onchain mode: the fan's wallet sends the tip, then the server confirms it. */
+  async function sendOnchain() {
+    const creatorWallet = episodeId
+      ? (await api.get<{ creatorWallet: Address | null }>(`/api/episodes/${episodeId}`)).creatorWallet
+      : null;
+    if (!creatorWallet) throw new Error("This creator can't receive tips yet");
+    const txHash = await chain.sendTx({
+      address: getAddresses().tips,
+      abi: tipsAbi,
+      functionName: "tip",
+      args: [
+        creatorWallet,
+        episodeId ? toChainId(episodeId) : zeroHash,
+        paiseToUnits(amount * 100),
+        message.trim() ? keccak256(toBytes(message.trim())) : zeroHash,
+      ],
+    });
+    await api.post("/api/tips", { creatorId, episodeId, amountRupees: amount, message, txHash });
+  }
 
   async function send() {
     setBusy(true);
     setError(null);
     try {
-      await api.post("/api/tips", { creatorId, episodeId, amountRupees: amount, message });
+      if (chain.enabled) await sendOnchain();
+      else await api.post("/api/tips", { creatorId, episodeId, amountRupees: amount, message });
       setSent(true);
       onSent?.();
       setTimeout(() => {
@@ -34,7 +60,7 @@ export function TipButton({
         setMessage("");
       }, 1200);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Tip failed");
+      setError(err instanceof ApiError || err instanceof Error ? err.message : "Tip failed");
     } finally {
       setBusy(false);
     }

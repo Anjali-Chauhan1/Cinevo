@@ -1,12 +1,19 @@
+import type { Address } from "viem";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { ok, withApiErrors } from "@/lib/api";
 import { getOrCreateLedgerAccountId } from "@/lib/ledger/core";
+import { WALLET } from "@/lib/constants";
+import { explorerTxUrl, getAddresses, isOnchain, unitsToPaise } from "@/lib/chain/config";
+import { publicClient } from "@/lib/chain/server";
+import { syncBalance } from "@/lib/chain/mirror";
+import { vaultAbi } from "@/lib/chain/abis";
+import { FAUCET } from "@/lib/chain/faucet";
 
 export const GET = withApiErrors(async () => {
   const user = await requireUser();
   const accountId = await getOrCreateLedgerAccountId(prisma, user.id);
-  const account = await prisma.ledgerAccount.findUniqueOrThrow({ where: { id: accountId } });
+  let account = await prisma.ledgerAccount.findUniqueOrThrow({ where: { id: accountId } });
   const transactions = await prisma.ledgerTransaction.findMany({
     where: { accountId },
     orderBy: { createdAt: "desc" },
@@ -21,5 +28,36 @@ export const GET = withApiErrors(async () => {
     include: { campaign: { select: { filmTitle: true } } },
   });
 
-  return ok({ account, transactions, activeSubscriptions, backerPasses });
+  // Onchain mode: the vault is the truth for the balance and any pending withdrawal.
+  let onchain = null;
+  if (isOnchain && user.walletAddress) {
+    const vault = getAddresses().vault;
+    const [balancePaise, request] = await Promise.all([
+      syncBalance(user.id),
+      publicClient.readContract({ address: vault, abi: vaultAbi, functionName: "withdrawRequests", args: [user.walletAddress as Address] }),
+    ]);
+    const [requestedUnits, readyAt] = request;
+    account = {
+      ...account,
+      balancePaise,
+      pendingWithdrawPaise: unitsToPaise(requestedUnits),
+      withdrawRequestedAt: requestedUnits > 0n ? new Date((Number(readyAt) - WALLET.WITHDRAW_DELAY_MINUTES * 60) * 1000) : null,
+    };
+    const nextFaucetAt = user.lastFaucetAt ? new Date(user.lastFaucetAt.getTime() + FAUCET.COOLDOWN_MS) : null;
+    onchain = {
+      walletAddress: user.walletAddress,
+      vaultAddress: vault,
+      withdrawReadyAt: requestedUnits > 0n ? new Date(Number(readyAt) * 1000) : null,
+      faucetPaise: FAUCET.AMOUNT_PAISE,
+      nextFaucetAt: nextFaucetAt && nextFaucetAt > new Date() ? nextFaucetAt : null,
+    };
+  }
+
+  return ok({
+    account,
+    transactions: transactions.map((t) => ({ ...t, explorerUrl: t.txHash ? explorerTxUrl(t.txHash) : null })),
+    activeSubscriptions,
+    backerPasses,
+    onchain,
+  });
 });

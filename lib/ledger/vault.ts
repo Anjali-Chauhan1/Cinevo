@@ -8,6 +8,8 @@ import {
   InsufficientBalanceError,
 } from "@/lib/ledger/core";
 import { distributeFilmRevenue } from "@/lib/ledger/campaigns";
+import { isOnchain } from "@/lib/chain/config";
+import { settleSessionOnchainFlow } from "@/lib/chain/flows";
 import {
   CampaignStatus,
   PLATFORM_FEE_BPS,
@@ -119,15 +121,26 @@ export class VoucherRejectedError extends Error {
 }
 
 /**
- * Accepts one voucher tick (the demo stand-in for an EIP-712 signed voucher).
- * `cumulativeAmountPaise` must be the TOTAL owed for the session so far, and
- * must only ever increase — this is the replay-protection + monotonicity
- * invariant from the onchain design, enforced here instead of in Solidity.
+ * Accepts one voucher tick (the demo stand-in for an EIP-712 signed voucher),
+ * sent by the player every 10 seconds for EVERY session — it doubles as the
+ * heartbeat that keeps the session (and the video stream) alive.
+ *
+ * `cumulativeAmountPaise` must be the TOTAL owed for the session so far and
+ * may never go down (replay protection, as in the onchain design). Sending
+ * the same amount again is a plain heartbeat: no money moves.
+ *
+ * `playedSeconds` is how much video actually played since the last tick. It
+ * is clamped to the real time elapsed, so a client can't inflate watch time
+ * (which gates reviews and feeds popularity).
  */
 export async function submitVoucher(
   sessionToken: string,
   viewerId: string,
-  cumulativeAmountPaise: number
+  cumulativeAmountPaise: number,
+  playedSeconds: number = PAY_PER_MINUTE.VOUCHER_INTERVAL_SECONDS,
+  // Onchain mode: the viewer's signed voucher (already verified by the route)
+  // and their live vault balance, which replaces the database balance check.
+  onchain?: { voucherUnits: string; voucherSignature: string; freeBalancePaise: number }
 ) {
   return prisma.$transaction(async (tx) => {
     const session = await tx.watchSession.findUnique({ where: { sessionToken } });
@@ -138,25 +151,25 @@ export async function submitVoucher(
       throw new VoucherRejectedError("Session is no longer active");
     }
 
-    // Free sessions (subscriber/backer-pass/free-episode/already-paid) still
-    // send heartbeats so we can track watch time for reviews/popularity, but
-    // never move money and never exceed a cap that doesn't apply to them.
+    const now = new Date();
+    const sinceLastTick = (now.getTime() - (session.lastVoucherAt ?? session.startedAt).getTime()) / 1000;
+    const watched = Math.max(0, Math.min(Math.round(playedSeconds), Math.ceil(sinceLastTick) + 2));
+    const heartbeat = { secondsWatched: { increment: watched }, lastVoucherAt: now };
+
+    // Free sessions (subscriber/backer-pass/free-episode/already-paid) only
+    // ever heartbeat: watch time is tracked, money never moves.
     if (session.freeReason !== FreeReason.NONE) {
-      return tx.watchSession.update({
-        where: { id: session.id },
-        data: {
-          secondsWatched: { increment: PAY_PER_MINUTE.VOUCHER_INTERVAL_SECONDS },
-          lastVoucherAt: new Date(),
-        },
-      });
+      return tx.watchSession.update({ where: { id: session.id }, data: heartbeat });
     }
 
-    if (cumulativeAmountPaise <= session.cumulativeAmountPaise) {
+    if (cumulativeAmountPaise < session.cumulativeAmountPaise) {
       // Stale, replayed, or clock-skewed voucher — reject, don't just ignore,
       // so the client surfaces it instead of silently stalling playback.
-      throw new VoucherRejectedError(
-        "Voucher amount must exceed the amount already billed for this session"
-      );
+      throw new VoucherRejectedError("Voucher amount can't be lower than the amount already billed for this session");
+    }
+    if (cumulativeAmountPaise === session.cumulativeAmountPaise) {
+      // Still in the free preview, paused, or past the cap.
+      return tx.watchSession.update({ where: { id: session.id }, data: heartbeat });
     }
 
     // Clamp to the per-episode cap — once reached, the rest of the episode
@@ -170,7 +183,9 @@ export async function submitVoucher(
     // viewer could open the same (or different) paid episodes in multiple
     // tabs and commit to spending more than their balance holds.
     const account = await tx.ledgerAccount.findUnique({ where: { userId: viewerId } });
-    const freeBalance = (account?.balancePaise ?? 0) - (account?.pendingWithdrawPaise ?? 0);
+    const freeBalance = onchain
+      ? onchain.freeBalancePaise
+      : (account?.balancePaise ?? 0) - (account?.pendingWithdrawPaise ?? 0);
 
     const otherActive = await tx.watchSession.findMany({
       where: {
@@ -193,8 +208,8 @@ export async function submitVoucher(
       where: { id: session.id },
       data: {
         cumulativeAmountPaise: clamped,
-        secondsWatched: { increment: PAY_PER_MINUTE.VOUCHER_INTERVAL_SECONDS },
-        lastVoucherAt: new Date(),
+        ...heartbeat,
+        ...(onchain ? { voucherUnits: onchain.voucherUnits, voucherSignature: onchain.voucherSignature } : {}),
       },
     });
   });
@@ -210,6 +225,8 @@ export async function settleSession(
   sessionId: string,
   trigger: "VIEWER_STOP" | "AUTO_TIMEOUT" | "CAP_REACHED" = "VIEWER_STOP"
 ) {
+  // Onchain mode: the signed voucher settles in CinovaVault instead.
+  if (isOnchain) return settleSessionOnchainFlow(sessionId);
   return prisma.$transaction(async (tx) => {
     const session = await tx.watchSession.findUniqueOrThrow({ where: { id: sessionId } });
     if (session.status !== WatchSessionStatus.ACTIVE) return session; // already settled

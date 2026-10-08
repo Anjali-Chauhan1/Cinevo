@@ -28,8 +28,15 @@ contract BackerPass is ERC1155, AccessControl, IBackerPass {
         return (uint256(uint160(campaign)) << 8) | tier;
     }
 
+    /// @dev Mints without the ERC-1155 receiver callback: passes are
+    /// soulbound, and wallets upgraded with EIP-7702 (for gas sponsorship)
+    /// have code whose delegate may not implement onERC1155Received.
     function mint(address to, uint8 tier) external onlyRole(MINTER_ROLE) {
-        _mint(to, tokenIdFor(msg.sender, tier), 1, "");
+        uint256[] memory ids = new uint256[](1);
+        uint256[] memory values = new uint256[](1);
+        ids[0] = tokenIdFor(msg.sender, tier);
+        values[0] = 1;
+        _update(address(0), to, ids, values);
     }
 
     /// @notice Revokes passes when a backer is refunded.

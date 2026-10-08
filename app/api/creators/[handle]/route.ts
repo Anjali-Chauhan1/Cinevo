@@ -9,6 +9,7 @@ export const GET = withApiErrors(async (_req: Request, { params }: { params: { h
   const creator = await prisma.creator.findUnique({
     where: { handle },
     include: {
+      user: { select: { walletAddress: true } },
       emotes: true,
       episodes: { orderBy: { createdAt: "desc" } },
       campaigns: { where: { status: { in: ["ACTIVE", "FUNDED_PRODUCING"] } }, include: { tiers: true } },
@@ -41,7 +42,8 @@ export const GET = withApiErrors(async (_req: Request, { params }: { params: { h
 
   return ok(
     toJSONSafe({
-      creator: { ...creator, episodes: undefined, emotes: undefined, campaigns: undefined },
+      creator: { ...creator, user: undefined, episodes: undefined, emotes: undefined, campaigns: undefined },
+      creatorWallet: creator.user.walletAddress,
       episodes: creator.episodes,
       emotes: creator.emotes,
       campaigns: creator.campaigns,

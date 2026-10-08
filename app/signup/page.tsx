@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { ApiError } from "@/lib/client-api";
+import { isOnchain } from "@/lib/chain/config";
+import { WalletSignIn } from "@/components/web3/WalletSignIn";
 
 export default function SignupPage() {
   const { signup, user, loading } = useAuth();
@@ -34,6 +36,9 @@ export default function SignupPage() {
       setBusy(false);
     }
   }
+
+  // Onchain mode signs in through Privy (email or Google) instead of a password.
+  if (isOnchain) return <WalletSignIn title="Join Cinova" subtitle="Watch, tip, subscribe and back films — prices in ₹, no crypto knowledge needed." />;
 
   return (
     <div className="mx-auto max-w-sm py-12">

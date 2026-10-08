@@ -27,6 +27,8 @@ interface EpisodeData {
     creator: { id: string; handle: string; channelName: string };
   };
   popularity: { score: number; level: string } | null;
+  // Backers of the campaign that funded this film, by tier.
+  backerCredits?: Array<{ tier: string; names: string[] }>;
   reviews: Array<{
     id: string;
     stars: number;
@@ -75,7 +77,7 @@ export default function WatchPage({ params }: { params: { id: string } }) {
   if (error) return <div className="empty-state" role="alert"><Icon name="film" size={32} /><h1>We couldn&apos;t load this film.</h1><p>{error}</p><button className="btn-primary" onClick={() => { setError(null); load(); }}>Try again</button><Link href="/trending" className="text-link">Explore other films</Link></div>;
   if (!data) return <div role="status" aria-label="Loading film" className="space-y-5"><div className="aspect-video max-h-[560px] animate-pulse rounded-xl bg-[var(--surface-raised)]" /><div className="h-7 w-2/3 animate-pulse rounded bg-[var(--surface-raised)]" /><p className="text-sm text-[var(--text-dim)]">Getting your film ready…</p></div>;
 
-  const { episode, popularity, reviews, viewerState } = data;
+  const { episode, popularity, reviews, viewerState, backerCredits = [] } = data;
   const credits: Array<{ name: string; role: string }> = episode.castCredits ? JSON.parse(episode.castCredits) : [];
 
   if (episode.status === "PREMIERING") {
@@ -131,16 +133,28 @@ export default function WatchPage({ params }: { params: { id: string } }) {
           </div>
         )}
 
-        {credits.length > 0 && (
+        {(credits.length > 0 || backerCredits.length > 0) && (
           <div className="mt-6">
             <h2 className="mb-2 font-serif text-lg font-semibold">Credits</h2>
-            <ul className="text-sm text-[var(--text-dim)]">
-              {credits.map((c, i) => (
-                <li key={i}>
-                  {c.name} — {c.role}
-                </li>
-              ))}
-            </ul>
+            {credits.length > 0 && (
+              <ul className="text-sm text-[var(--text-dim)]">
+                {credits.map((c, i) => (
+                  <li key={i}>
+                    {c.name} — {c.role}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {backerCredits.length > 0 && (
+              <div className="mt-4">
+                <h3 className="text-sm font-medium">Made possible by our backers</h3>
+                {backerCredits.map((group) => (
+                  <p key={group.tier} className="mt-1 text-sm text-[var(--text-dim)]">
+                    <span className="text-[var(--text)]">{group.tier}:</span> {group.names.join(", ")}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

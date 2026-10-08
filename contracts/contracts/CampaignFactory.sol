@@ -29,6 +29,7 @@ contract CampaignFactory is ICampaignFactory {
     );
 
     error NotCreator();
+    error NotPublisher();
 
     constructor(ICinovaRegistry registry_, IERC20 token_, BackerPass backerPass_, address implementation_) {
         registry = registry_;
@@ -38,13 +39,23 @@ contract CampaignFactory is ICampaignFactory {
     }
 
     function createCampaign(FilmCampaign.Config calldata cfg) external returns (address campaign) {
-        if (!registry.isCreator(msg.sender)) revert NotCreator();
+        return _create(msg.sender, cfg);
+    }
+
+    /// @notice The Cinova server launching a campaign the creator set up in the app.
+    function createCampaignFor(address creator, FilmCampaign.Config calldata cfg) external returns (address campaign) {
+        if (!registry.hasRole(registry.PUBLISHER_ROLE(), msg.sender)) revert NotPublisher();
+        return _create(creator, cfg);
+    }
+
+    function _create(address creator, FilmCampaign.Config calldata cfg) private returns (address campaign) {
+        if (!registry.isCreator(creator)) revert NotCreator();
         campaign = Clones.clone(implementation);
         isCampaign[campaign] = true;
         campaigns.push(campaign);
         backerPass.grantRole(backerPass.MINTER_ROLE(), campaign);
-        FilmCampaign(campaign).initialize(msg.sender, registry, token, IBackerPass(address(backerPass)), cfg);
-        emit CampaignCreated(campaign, msg.sender, cfg.goal, cfg.deadline, cfg.deliveryDate, cfg.unitsEnabled);
+        FilmCampaign(campaign).initialize(creator, registry, token, IBackerPass(address(backerPass)), cfg);
+        emit CampaignCreated(campaign, creator, cfg.goal, cfg.deadline, cfg.deliveryDate, cfg.unitsEnabled);
     }
 
     function campaignCount() external view returns (uint256) {

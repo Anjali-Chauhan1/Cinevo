@@ -24,30 +24,39 @@ interface ICinovaRegistry {
     function treasury() external view returns (address);
     function feeBps() external view returns (uint16);
     function splitFee(uint256 gross) external view returns (uint256 fee, uint256 net);
+    function vault() external view returns (address);
+    function campaignFactory() external view returns (address);
 
     function VAULT_SPENDER_ROLE() external view returns (bytes32);
     function MILESTONE_APPROVER_ROLE() external view returns (bytes32);
+    function PUBLISHER_ROLE() external view returns (bytes32);
 }
 
-/// @notice Balance surface of CinovaVault used by Subscriptions and Tips.
+/// @notice Balance surface of CinovaVault used by Subscriptions, Tips and campaigns.
 interface ICinovaVault {
     function balanceOf(address account) external view returns (uint256);
+    /// Moves balance between two accounts inside the vault (no token transfer).
     function spend(address from, address to, uint256 amount) external;
+    /// Pulls `amount` tokens from the caller and credits `account`'s balance.
+    function depositFor(address account, uint256 amount) external;
 }
 
-/// @notice Anything that can take a share of episode revenue (a FilmCampaign).
-/// The caller must approve `amount` first; the receiver pulls it.
-interface IRevenueReceiver {
+/// @notice A FilmCampaign as the vault sees it: revenue share and backing
+/// paid from a viewer's vault balance.
+interface IFilmCampaign {
+    function creator() external view returns (address);
+    function tierPrice(uint8 tier) external view returns (uint256);
+    function unitPrice() external view returns (uint128);
+    /// Pulls the unit holders' share of `amount` from the caller (the vault)
+    /// and returns the split; the creator's share stays with the caller.
     function distributeRevenue(uint256 amount) external returns (uint256 toUnits, uint256 toCreator);
+    function backFor(address backer, uint8 tier, bytes32 ackHash) external;
+    function buyUnitsFor(address backer, uint256 units, bytes32 ackHash) external;
 }
 
-/// @notice What the Registry needs to check before linking an episode to a campaign.
+/// @notice What the Registry and Vault need to check a campaign is genuine.
 interface ICampaignFactory {
     function isCampaign(address campaign) external view returns (bool);
-}
-
-interface IFilmCampaignView {
-    function creator() external view returns (address);
 }
 
 interface IBackerPass {

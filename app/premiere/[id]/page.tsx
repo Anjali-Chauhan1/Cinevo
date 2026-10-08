@@ -15,7 +15,7 @@ interface EpisodeData {
     videoKey: string;
     status: string;
     creatorId: string;
-    creator: { handle: string; channelName: string };
+    creator: { handle: string; channelName: string; userId: string };
   };
   viewerState: { signedIn: boolean; isModerator?: boolean };
 }
@@ -70,6 +70,7 @@ export default function PremierePage({ params }: { params: { id: string } }) {
         <PremiereRoom
           episodeId={episode.id}
           creatorId={episode.creatorId}
+          creatorUserId={episode.creator.userId}
           isModerator={!!viewerState.isModerator}
           viewerSignedIn={!!user}
         />

@@ -5,7 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {ICinovaRegistry, IBackerPass, IRevenueReceiver} from "./interfaces/ICinova.sol";
+import {ICinovaRegistry, ICinovaVault, IBackerPass, IFilmCampaign} from "./interfaces/ICinova.sol";
 
 /// @title FilmCampaign
 /// @notice One escrow per film. Never a pooled fund across films.
@@ -15,13 +15,15 @@ import {ICinovaRegistry, IBackerPass, IRevenueReceiver} from "./interfaces/ICino
 /// - Money waits here and is released to the creator milestone by milestone,
 ///   each one approved after the creator submits proof (10% platform fee is
 ///   taken on release, so refunds are always the full amount escrowed).
+/// - Everything paid out (releases, refunds, revenue) lands in the
+///   recipient's CinovaVault balance, like the rest of their Cinova money.
 /// - Goal missed by the deadline, or film not delivered by the delivery date:
 ///   every backer can claim a refund of their share of what is still escrowed.
 /// - After funding, episode revenue routed here is split by the Producer Unit
 ///   waterfall: unit holders recoup 120% first, then the creator earns most.
 ///
 /// Deployed as EIP-1167 clones by CampaignFactory, hence `initialize`.
-contract FilmCampaign is Initializable, ReentrancyGuard, IRevenueReceiver {
+contract FilmCampaign is Initializable, ReentrancyGuard, IFilmCampaign {
     using SafeERC20 for IERC20;
 
     enum State {
@@ -121,6 +123,7 @@ contract FilmCampaign is Initializable, ReentrancyGuard, IRevenueReceiver {
     error WrongMilestone();
     error NoProof();
     error NothingToClaim();
+    error NotVault();
 
     constructor() {
         _disableInitializers();
@@ -215,6 +218,29 @@ contract FilmCampaign is Initializable, ReentrancyGuard, IRevenueReceiver {
     /// @param ackHash Hash of the risk acknowledgement the backer accepted
     /// ("I understand this supports the creator and may not be delivered").
     function back(uint8 tier, bytes32 ackHash) external nonReentrant synced {
+        _back(msg.sender, msg.sender, tier, ackHash);
+    }
+
+    /// @notice Backing paid from the backer's vault balance; only the vault
+    /// can call this (it has already taken the money from that balance).
+    function backFor(address backer, uint8 tier, bytes32 ackHash) external nonReentrant synced {
+        _onlyVault();
+        _back(backer, msg.sender, tier, ackHash);
+    }
+
+    /// @notice Buys Producer Units: a fixed share of the film's revenue, not
+    /// its profit. KYC-verified investors in permitted regions only. Units
+    /// cannot be transferred (secondary market is on the roadmap).
+    function buyUnits(uint256 units, bytes32 ackHash) external nonReentrant synced {
+        _buyUnits(msg.sender, msg.sender, units, ackHash);
+    }
+
+    function buyUnitsFor(address backer, uint256 units, bytes32 ackHash) external nonReentrant synced {
+        _onlyVault();
+        _buyUnits(backer, msg.sender, units, ackHash);
+    }
+
+    function _back(address backer, address payer, uint8 tier, bytes32 ackHash) private {
         _requireState(State.Active);
         if (tier >= _tiers.length) revert UnknownTier();
         if (ackHash == bytes32(0)) revert MissingAcknowledgement();
@@ -222,47 +248,46 @@ contract FilmCampaign is Initializable, ReentrancyGuard, IRevenueReceiver {
         if (t.limit != 0 && t.backedCount >= t.limit) revert TierSoldOut();
 
         t.backedCount += 1;
-        contributionOf[msg.sender] += t.price;
+        contributionOf[backer] += t.price;
         totalRaised += t.price;
-        passesOf[msg.sender][tier] += 1;
+        passesOf[backer][tier] += 1;
 
-        token.safeTransferFrom(msg.sender, address(this), t.price);
-        backerPass.mint(msg.sender, tier);
-        emit Backed(msg.sender, tier, t.price, ackHash);
+        token.safeTransferFrom(payer, address(this), t.price);
+        backerPass.mint(backer, tier);
+        emit Backed(backer, tier, t.price, ackHash);
     }
 
-    /// @notice Buys Producer Units: a fixed share of the film's revenue, not
-    /// its profit. KYC-verified investors in permitted regions only. Units
-    /// cannot be transferred (secondary market is on the roadmap).
-    function buyUnits(uint256 units, bytes32 ackHash) external nonReentrant synced {
+    function _buyUnits(address backer, address payer, uint256 units, bytes32 ackHash) private {
         if (!unitsEnabled) revert UnitsDisabled();
         _requireState(State.Active);
-        if (!registry.isVerifiedInvestor(msg.sender)) revert NotVerifiedInvestor();
+        if (!registry.isVerifiedInvestor(backer)) revert NotVerifiedInvestor();
         if (ackHash == bytes32(0)) revert MissingAcknowledgement();
         if (units == 0) revert InvalidConfig();
 
         uint256 cost = units * unitPrice;
-        if (unitSpendOf[msg.sender] + cost > maxUnitSpendPerBacker) revert OverPersonalCap();
+        if (unitSpendOf[backer] + cost > maxUnitSpendPerBacker) revert OverPersonalCap();
         if (unitHardCap != 0 && unitsRaised + cost > unitHardCap) revert OverHardCap();
 
-        _harvest(msg.sender);
-        unitsOf[msg.sender] += units;
-        unitSpendOf[msg.sender] += cost;
+        _harvest(backer);
+        unitsOf[backer] += units;
+        unitSpendOf[backer] += cost;
         totalUnits += units;
         unitsRaised += cost;
-        contributionOf[msg.sender] += cost;
+        contributionOf[backer] += cost;
         totalRaised += cost;
 
-        token.safeTransferFrom(msg.sender, address(this), cost);
-        emit UnitsPurchased(msg.sender, units, cost, ackHash);
+        token.safeTransferFrom(payer, address(this), cost);
+        emit UnitsPurchased(backer, units, cost, ackHash);
     }
 
     // ------------------------------------------------------------------
     // Milestones
     // ------------------------------------------------------------------
 
+    /// @notice Proof that a milestone is done (a hash of the uploaded proof).
+    /// Submitted by the creator, or by the Cinova server for them.
     function submitMilestoneProof(uint8 index, bytes32 proofHash) external synced {
-        if (msg.sender != creator) revert NotCreator();
+        if (msg.sender != creator && !registry.hasRole(registry.PUBLISHER_ROLE(), msg.sender)) revert NotCreator();
         _requireState(State.Funded);
         if (index != milestonesReleased) revert WrongMilestone();
         if (proofHash == bytes32(0)) revert NoProof();
@@ -297,8 +322,8 @@ contract FilmCampaign is Initializable, ReentrancyGuard, IRevenueReceiver {
         }
 
         (uint256 fee, uint256 net) = registry.splitFee(amount);
-        if (fee > 0) token.safeTransfer(registry.treasury(), fee);
-        token.safeTransfer(creator, net);
+        _payInto(registry.treasury(), fee);
+        _payInto(creator, net);
         emit MilestoneReleased(index, amount, net, fee);
     }
 
@@ -335,7 +360,7 @@ contract FilmCampaign is Initializable, ReentrancyGuard, IRevenueReceiver {
             }
         }
 
-        if (amount > 0) token.safeTransfer(msg.sender, amount);
+        _payInto(msg.sender, amount);
         emit Refunded(msg.sender, amount);
     }
 
@@ -343,20 +368,19 @@ contract FilmCampaign is Initializable, ReentrancyGuard, IRevenueReceiver {
     // Revenue waterfall
     // ------------------------------------------------------------------
 
-    /// @notice Pulls `amount` (net of the platform fee) from the caller —
-    /// normally CinovaVault settling pay-per-minute revenue for an episode
-    /// linked to this film — and splits it between unit holders and creator.
+    /// @notice Called by CinovaVault when it settles pay-per-minute revenue
+    /// (net of the platform fee) for an episode linked to this film. Pulls
+    /// only the unit holders' share; the vault credits the rest to the creator.
     function distributeRevenue(uint256 amount) external nonReentrant synced returns (uint256 toUnits, uint256 toCreator) {
-        token.safeTransferFrom(msg.sender, address(this), amount);
-
+        _onlyVault();
         bool unitsLive = (state == State.Funded || state == State.Delivered) && totalUnits > 0;
         if (unitsLive) {
             toUnits = _unitsShare(amount);
             unitsRecouped += toUnits;
             accRevenuePerUnit += (toUnits * ACC_PRECISION) / totalUnits;
+            token.safeTransferFrom(msg.sender, address(this), toUnits);
         }
         toCreator = amount - toUnits;
-        if (toCreator > 0) token.safeTransfer(creator, toCreator);
         emit RevenueDistributed(amount, toUnits, toCreator);
     }
 
@@ -370,7 +394,7 @@ contract FilmCampaign is Initializable, ReentrancyGuard, IRevenueReceiver {
         amount = _pendingRevenueOf[msg.sender];
         if (amount == 0) revert NothingToClaim();
         _pendingRevenueOf[msg.sender] = 0;
-        token.safeTransfer(msg.sender, amount);
+        _payInto(msg.sender, amount);
         emit RevenueClaimed(msg.sender, amount);
     }
 
@@ -392,6 +416,18 @@ contract FilmCampaign is Initializable, ReentrancyGuard, IRevenueReceiver {
         return remaining + (rest * STAGE2_UNITS_BPS) / netBps;
     }
 
+    /// @dev Pays into someone's vault balance rather than their wallet.
+    function _payInto(address account, uint256 amount) private {
+        if (amount == 0) return;
+        address vault = registry.vault();
+        token.forceApprove(vault, amount);
+        ICinovaVault(vault).depositFor(account, amount);
+    }
+
+    function _onlyVault() private view {
+        if (msg.sender != registry.vault()) revert NotVault();
+    }
+
     /// @dev Banks revenue earned so far before a holder's unit count changes,
     /// so new holders only earn from revenue after they join.
     function _harvest(address holder) private {
@@ -409,6 +445,11 @@ contract FilmCampaign is Initializable, ReentrancyGuard, IRevenueReceiver {
 
     function tierCount() external view returns (uint256) {
         return _tiers.length;
+    }
+
+    function tierPrice(uint8 tier) external view returns (uint256) {
+        if (tier >= _tiers.length) revert UnknownTier();
+        return _tiers[tier].price;
     }
 
     function getTier(uint8 tier) external view returns (Tier memory) {

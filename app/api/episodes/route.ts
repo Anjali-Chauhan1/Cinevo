@@ -4,6 +4,9 @@ import { requireCreator, ForbiddenError } from "@/lib/auth";
 import { episodeCreateSchema, rupeesToPaiseInt } from "@/lib/validation";
 import { ok, withApiErrors } from "@/lib/api";
 import { EpisodeStatus, VerificationStatus, PAY_PER_MINUTE } from "@/lib/constants";
+import { assertValidVideoKey } from "@/lib/media";
+import { isOnchain } from "@/lib/chain/config";
+import { syncEpisodeOnchain } from "@/lib/chain/operator";
 
 export const POST = withApiErrors(async (req: NextRequest) => {
   const { creator } = await requireCreator();
@@ -12,6 +15,7 @@ export const POST = withApiErrors(async (req: NextRequest) => {
   }
 
   const body = episodeCreateSchema.parse(await req.json());
+  await assertValidVideoKey(body.videoKey);
 
   if (body.isPaid) {
     const rateP = rupeesToPaiseInt(body.rateRupees!);
@@ -54,5 +58,6 @@ export const POST = withApiErrors(async (req: NextRequest) => {
     },
   });
 
+  if (isOnchain && episode.status !== EpisodeStatus.DRAFT) await syncEpisodeOnchain(episode.id);
   return ok({ episode }, 201);
 });

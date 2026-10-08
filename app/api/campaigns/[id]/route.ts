@@ -3,15 +3,17 @@ import { getCurrentUser } from "@/lib/auth";
 import { ok, withApiErrors } from "@/lib/api";
 import { toJSONSafe } from "@/lib/serialize";
 import { PRODUCER_UNITS, KycStatus, BackingStatus } from "@/lib/constants";
+import { CHAIN_TIER_ORDER } from "@/lib/chain/operator";
+import { isOnchain } from "@/lib/chain/config";
 
 export const GET = withApiErrors(async (_req: Request, { params }: { params: { id: string } }) => {
   const { id } = params;
   const campaign = await prisma.campaign.findUnique({
     where: { id },
     include: {
-      tiers: true,
+      tiers: { orderBy: CHAIN_TIER_ORDER },
       milestones: { orderBy: { order: "asc" } },
-      creator: { select: { id: true, handle: true, channelName: true, userId: true } },
+      creator: { select: { id: true, handle: true, channelName: true, userId: true, user: { select: { walletAddress: true } } } },
     },
   });
   if (!campaign) return ok({ error: "Campaign not found" }, 404);
@@ -46,7 +48,9 @@ export const GET = withApiErrors(async (_req: Request, { params }: { params: { i
 
   return ok(
     toJSONSafe({
-      campaign,
+      // Tiers come in onchain order: a tier's position is its onchain index.
+      campaign: { ...campaign, tiers: campaign.tiers.map((t, chainIndex) => ({ ...t, chainIndex })) },
+      onchain: isOnchain ? { contractAddress: campaign.contractAddress } : null,
       backerCount,
       unitEconomics: campaign.producerUnitsEnabled
         ? {

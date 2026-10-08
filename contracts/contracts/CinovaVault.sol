@@ -4,22 +4,25 @@ pragma solidity ^0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {ICinovaRegistry, ICinovaVault, IRevenueReceiver} from "./interfaces/ICinova.sol";
+import {ICinovaRegistry, ICinovaVault, IFilmCampaign, ICampaignFactory} from "./interfaces/ICinova.sol";
 
 /// @title CinovaVault
-/// @notice Viewer balances and pay-per-minute settlement.
+/// @notice Everyone's Cinova balance, and pay-per-minute settlement.
 ///
-/// A viewer tops up once. While watching a paid episode their wallet signs an
-/// off-chain EIP-712 voucher every few seconds: "I owe up to X for this
-/// session". Vouchers cost no gas. When the viewer stops, anyone (normally the
-/// Cinova server) submits the latest voucher and the vault pays only the
-/// difference from what that session already paid — capped per episode and
-/// never more than the viewer's balance.
+/// Tokens enter through deposits (top-ups, refunds, payouts from campaigns)
+/// and leave only through a delayed withdrawal. Inside, money moves between
+/// balances without token transfers: a viewer paying for a film, a fan tipping
+/// or subscribing, and the creator and platform being paid are all balance
+/// updates here. Creators withdraw what they've earned like anyone else.
 ///
-/// The same balance funds subscriptions and tips, which spend it through
-/// contracts holding VAULT_SPENDER_ROLE.
+/// Pay-per-minute: while watching, the viewer's wallet signs an off-chain
+/// EIP-712 voucher every few seconds ("I owe up to X for this session"), at no
+/// gas. When the viewer stops, anyone (normally the Cinova server) submits the
+/// latest voucher; the vault charges only the increase over what that session
+/// already paid — capped per episode and never more than the balance.
 contract CinovaVault is EIP712, ReentrancyGuard, ICinovaVault {
     using SafeERC20 for IERC20;
 
@@ -69,6 +72,7 @@ contract CinovaVault is EIP712, ReentrancyGuard, ICinovaVault {
         uint256 toPlatform
     );
     event Spent(address indexed from, address indexed to, address indexed spender, uint256 amount);
+    event BackedFromBalance(address indexed backer, address indexed campaign, uint256 amount);
 
     error ZeroAmount();
     error InsufficientBalance();
@@ -79,6 +83,7 @@ contract CinovaVault is EIP712, ReentrancyGuard, ICinovaVault {
     error EpisodeNotPaid();
     error StaleVoucher();
     error NotSpender();
+    error UnknownCampaign();
 
     constructor(IERC20 token_, ICinovaRegistry registry_, uint256 withdrawDelay_) EIP712("Cinova Vault", "1") {
         token = token_;
@@ -94,7 +99,8 @@ contract CinovaVault is EIP712, ReentrancyGuard, ICinovaVault {
         _deposit(msg.sender, amount);
     }
 
-    /// @notice Credits someone else's balance — used by the card on-ramp.
+    /// @notice Credits someone's balance with tokens from the caller — used by
+    /// the top-up on-ramp, and by campaigns paying out releases and refunds.
     function depositFor(address account, uint256 amount) external {
         _deposit(account, amount);
     }
@@ -122,7 +128,7 @@ contract CinovaVault is EIP712, ReentrancyGuard, ICinovaVault {
         emit WithdrawCancelled(msg.sender);
     }
 
-    /// @notice Completes a withdrawal after the delay. Pays out whatever is
+    /// @notice Completes a withdrawal after the delay, paying out whatever is
     /// left of the requested amount once settlements have run.
     function withdraw() external nonReentrant returns (uint256 amount) {
         WithdrawRequest memory req = withdrawRequests[msg.sender];
@@ -146,14 +152,13 @@ contract CinovaVault is EIP712, ReentrancyGuard, ICinovaVault {
         );
     }
 
-    /// @notice Settles a signed voucher. Pays only the increase over what this
-    /// session already settled, clamped to the episode cap (the rest of the
-    /// episode is free) and to the viewer's balance (any shortfall can be
+    /// @notice Settles a signed voucher. Charges only the increase over what
+    /// this session already settled, clamped to the episode cap (the rest of
+    /// the episode is free) and to the viewer's balance (any shortfall can be
     /// collected later with the same voucher, until it expires).
-    /// @dev Signature check supports both EOAs and smart-account wallets (ERC-1271).
     function settle(Voucher calldata v, bytes calldata signature) external nonReentrant returns (uint256 paid) {
         if (block.timestamp > v.expiry) revert VoucherExpired();
-        if (!SignatureChecker.isValidSignatureNow(v.viewer, hashVoucher(v), signature)) revert InvalidSignature();
+        if (!_isValidSignature(v.viewer, hashVoucher(v), signature)) revert InvalidSignature();
 
         ICinovaRegistry.Episode memory ep = registry.getEpisode(v.episodeId);
         if (!ep.exists || !ep.isPaid) revert EpisodeNotPaid();
@@ -165,6 +170,15 @@ contract CinovaVault is EIP712, ReentrancyGuard, ICinovaVault {
         }
         (uint256 toCreator, uint256 toUnits, uint256 fee) = _payOut(ep, paid);
         emit Settled(v.viewer, v.episodeId, v.sessionId, paid, toCreator, toUnits, fee);
+    }
+
+    /// @dev Embedded wallets upgraded with EIP-7702 (for gas sponsorship)
+    /// have code, so an ERC-1271-only check would ask the delegate contract.
+    /// The wallet's own key signing is proof enough, so try that first.
+    function _isValidSignature(address signer, bytes32 hash, bytes calldata signature) private view returns (bool) {
+        (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecover(hash, signature);
+        if (err == ECDSA.RecoverError.NoError && recovered == signer) return true;
+        return SignatureChecker.isValidERC1271SignatureNow(signer, hash, signature);
     }
 
     /// @dev Voucher accounting: works out what this voucher may charge and
@@ -187,39 +201,79 @@ contract CinovaVault is EIP712, ReentrancyGuard, ICinovaVault {
         episodePaid[v.viewer][v.episodeId] = paidSoFar + paid;
     }
 
-    /// @dev Platform fee to the treasury; the rest to the creator, or through
-    /// the film's Producer Unit waterfall if the episode is linked to one.
+    /// @dev Platform fee to the treasury's balance; the rest to the creator's
+    /// balance, minus the unit holders' share if the episode is linked to a
+    /// film's Producer Unit waterfall (that share is sent to the campaign).
     function _payOut(ICinovaRegistry.Episode memory ep, uint256 paid)
         private
         returns (uint256 toCreator, uint256 toUnits, uint256 fee)
     {
         uint256 net;
         (fee, net) = registry.splitFee(paid);
-        if (fee > 0) token.safeTransfer(registry.treasury(), fee);
+        balanceOf[registry.treasury()] += fee;
 
-        if (ep.revenueRecipient == address(0)) {
-            toCreator = net;
-            token.safeTransfer(ep.creator, net);
-        } else {
+        toCreator = net;
+        if (ep.revenueRecipient != address(0)) {
             token.forceApprove(ep.revenueRecipient, net);
-            (toUnits, toCreator) = IRevenueReceiver(ep.revenueRecipient).distributeRevenue(net);
+            (toUnits, toCreator) = IFilmCampaign(ep.revenueRecipient).distributeRevenue(net);
+            token.forceApprove(ep.revenueRecipient, 0);
         }
+        balanceOf[ep.creator] += toCreator;
+    }
+
+    // ------------------------------------------------------------------
+    // Backing a film from the balance
+    // ------------------------------------------------------------------
+
+    /// @notice Backs a campaign tier with the caller's balance, so fans never
+    /// need tokens in their own wallet.
+    function backCampaign(address campaign, uint8 tier, bytes32 ackHash) external nonReentrant {
+        IFilmCampaign c = _genuineCampaign(campaign);
+        uint256 amount = c.tierPrice(tier);
+        _fundCampaign(campaign, amount);
+        c.backFor(msg.sender, tier, ackHash);
+        token.forceApprove(campaign, 0);
+    }
+
+    /// @notice Buys Producer Units with the caller's balance (KYC still applies).
+    function buyUnits(address campaign, uint256 units, bytes32 ackHash) external nonReentrant {
+        IFilmCampaign c = _genuineCampaign(campaign);
+        uint256 amount = units * c.unitPrice();
+        _fundCampaign(campaign, amount);
+        c.buyUnitsFor(msg.sender, units, ackHash);
+        token.forceApprove(campaign, 0);
+    }
+
+    function _genuineCampaign(address campaign) private view returns (IFilmCampaign) {
+        address factory = registry.campaignFactory();
+        if (factory == address(0) || !ICampaignFactory(factory).isCampaign(campaign)) revert UnknownCampaign();
+        return IFilmCampaign(campaign);
+    }
+
+    /// @dev Takes `amount` from the caller's balance and lets the campaign pull it.
+    function _fundCampaign(address campaign, uint256 amount) private {
+        if (amount == 0) revert ZeroAmount();
+        uint256 balance = balanceOf[msg.sender];
+        if (amount > balance) revert InsufficientBalance();
+        balanceOf[msg.sender] = balance - amount;
+        token.forceApprove(campaign, amount);
+        emit BackedFromBalance(msg.sender, campaign, amount);
     }
 
     // ------------------------------------------------------------------
     // Spending by Subscriptions / Tips
     // ------------------------------------------------------------------
 
-    /// @notice Moves funds out of a viewer's balance. Only contracts granted
+    /// @notice Moves balance between two accounts. Only contracts granted
     /// VAULT_SPENDER_ROLE in the registry (Subscriptions, Tips) can call this,
     /// and each of them only spends on behalf of the viewer's own action.
-    function spend(address from, address to, uint256 amount) external nonReentrant {
+    function spend(address from, address to, uint256 amount) external {
         if (!registry.hasRole(registry.VAULT_SPENDER_ROLE(), msg.sender)) revert NotSpender();
         if (amount == 0) revert ZeroAmount();
         uint256 balance = balanceOf[from];
         if (amount > balance) revert InsufficientBalance();
         balanceOf[from] = balance - amount;
-        token.safeTransfer(to, amount);
+        balanceOf[to] += amount;
         emit Spent(from, to, msg.sender, amount);
     }
 }

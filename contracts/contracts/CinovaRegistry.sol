@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {ICinovaRegistry, ICampaignFactory, IFilmCampaignView} from "./interfaces/ICinova.sol";
+import {ICinovaRegistry, ICampaignFactory, IFilmCampaign} from "./interfaces/ICinova.sol";
 
 /// @title CinovaRegistry
 /// @notice Single source of truth for who may do what: verified creators,
@@ -15,8 +15,13 @@ contract CinovaRegistry is AccessControl, ICinovaRegistry {
     bytes32 public constant KYC_ROLE = keccak256("KYC_ROLE");
     /// Approves milestone proof so escrow can release (MVP: admin; roadmap: backer vote).
     bytes32 public constant MILESTONE_APPROVER_ROLE = keccak256("MILESTONE_APPROVER_ROLE");
-    /// Contracts allowed to move funds out of viewer balances (Subscriptions, Tips).
+    /// Contracts allowed to move balances inside the vault (Subscriptions, Tips).
     bytes32 public constant VAULT_SPENDER_ROLE = keccak256("VAULT_SPENDER_ROLE");
+    /// The Cinova server, publishing what a creator set up in the app
+    /// (episodes, pricing, campaigns) so creators never sign setup transactions.
+    /// It can only configure a verified creator's content; it can never move
+    /// anyone's money.
+    bytes32 public constant PUBLISHER_ROLE = keccak256("PUBLISHER_ROLE");
 
     uint16 public constant BPS = 10_000;
     uint16 public constant MAX_FEE_BPS = 2_000;
@@ -24,6 +29,7 @@ contract CinovaRegistry is AccessControl, ICinovaRegistry {
     address public treasury;
     uint16 public feeBps;
     address public campaignFactory;
+    address public vault;
 
     /// Allowed pay-per-minute range, in stablecoin base units per minute.
     uint256 public minRatePerMinute;
@@ -50,6 +56,7 @@ contract CinovaRegistry is AccessControl, ICinovaRegistry {
     event FeeUpdated(uint16 feeBps);
     event RateBoundsUpdated(uint256 minRatePerMinute, uint256 maxRatePerMinute);
     event CampaignFactorySet(address factory);
+    event VaultSet(address vault);
 
     error NotCreator();
     error NotEpisodeOwner();
@@ -103,60 +110,52 @@ contract CinovaRegistry is AccessControl, ICinovaRegistry {
     }
 
     // ------------------------------------------------------------------
-    // Episodes
+    // Episodes — called by the creator, or by the publisher on their behalf
     // ------------------------------------------------------------------
 
     /// @param episodeId keccak256 of the off-chain episode id.
-    function registerEpisode(
-        bytes32 episodeId,
-        uint96 ratePerMinute,
-        uint32 previewSeconds,
-        uint128 cap,
-        bool isPaid
-    ) external {
-        if (!isCreator[msg.sender]) revert NotCreator();
-        if (_episodes[episodeId].exists) revert EpisodeExists();
-        _validatePricing(ratePerMinute, cap, isPaid);
-        _episodes[episodeId] = Episode({
-            creator: msg.sender,
-            ratePerMinute: ratePerMinute,
-            previewSeconds: previewSeconds,
-            cap: cap,
-            isPaid: isPaid,
-            exists: true,
-            revenueRecipient: address(0)
-        });
-        emit EpisodeRegistered(episodeId, msg.sender, ratePerMinute, previewSeconds, cap, isPaid);
+    function registerEpisode(bytes32 episodeId, uint96 ratePerMinute, uint32 previewSeconds, uint128 cap, bool isPaid)
+        external
+    {
+        _registerEpisode(msg.sender, episodeId, ratePerMinute, previewSeconds, cap, isPaid);
     }
 
-    function setPricing(
+    function registerEpisodeFor(
+        address creator,
         bytes32 episodeId,
         uint96 ratePerMinute,
         uint32 previewSeconds,
         uint128 cap,
         bool isPaid
-    ) external {
-        Episode storage ep = _ownedEpisode(episodeId);
-        _validatePricing(ratePerMinute, cap, isPaid);
-        ep.ratePerMinute = ratePerMinute;
-        ep.previewSeconds = previewSeconds;
-        ep.cap = cap;
-        ep.isPaid = isPaid;
-        emit PricingUpdated(episodeId, ratePerMinute, previewSeconds, cap, isPaid);
+    ) external onlyRole(PUBLISHER_ROLE) {
+        _registerEpisode(creator, episodeId, ratePerMinute, previewSeconds, cap, isPaid);
+    }
+
+    function setPricing(bytes32 episodeId, uint96 ratePerMinute, uint32 previewSeconds, uint128 cap, bool isPaid)
+        external
+    {
+        Episode storage ep = _existingEpisode(episodeId);
+        if (ep.creator != msg.sender) revert NotEpisodeOwner();
+        _setPricing(ep, episodeId, ratePerMinute, previewSeconds, cap, isPaid);
+    }
+
+    function setPricingFor(bytes32 episodeId, uint96 ratePerMinute, uint32 previewSeconds, uint128 cap, bool isPaid)
+        external
+        onlyRole(PUBLISHER_ROLE)
+    {
+        _setPricing(_existingEpisode(episodeId), episodeId, ratePerMinute, previewSeconds, cap, isPaid);
     }
 
     /// @notice Routes this episode's pay-per-minute revenue through one of the
     /// creator's own FilmCampaigns (Producer Unit waterfall). Zero clears it.
     function setRevenueRecipient(bytes32 episodeId, address recipient) external {
-        Episode storage ep = _ownedEpisode(episodeId);
-        if (recipient != address(0)) {
-            if (campaignFactory == address(0) || !ICampaignFactory(campaignFactory).isCampaign(recipient)) {
-                revert InvalidRecipient();
-            }
-            if (IFilmCampaignView(recipient).creator() != msg.sender) revert InvalidRecipient();
-        }
-        ep.revenueRecipient = recipient;
-        emit RevenueRecipientSet(episodeId, recipient);
+        Episode storage ep = _existingEpisode(episodeId);
+        if (ep.creator != msg.sender) revert NotEpisodeOwner();
+        _setRevenueRecipient(ep, episodeId, recipient);
+    }
+
+    function setRevenueRecipientFor(bytes32 episodeId, address recipient) external onlyRole(PUBLISHER_ROLE) {
+        _setRevenueRecipient(_existingEpisode(episodeId), episodeId, recipient);
     }
 
     function getEpisode(bytes32 episodeId) external view returns (Episode memory) {
@@ -202,6 +201,12 @@ contract CinovaRegistry is AccessControl, ICinovaRegistry {
         emit CampaignFactorySet(factory);
     }
 
+    function setVault(address vault_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (vault_ == address(0)) revert ZeroAddress();
+        vault = vault_;
+        emit VaultSet(vault_);
+    }
+
     // AccessControl.hasRole satisfies the interface; restated for the compiler.
     function hasRole(bytes32 role, address account)
         public
@@ -216,10 +221,60 @@ contract CinovaRegistry is AccessControl, ICinovaRegistry {
     // Internal
     // ------------------------------------------------------------------
 
-    function _ownedEpisode(bytes32 episodeId) private view returns (Episode storage ep) {
+    function _registerEpisode(
+        address creator,
+        bytes32 episodeId,
+        uint96 ratePerMinute,
+        uint32 previewSeconds,
+        uint128 cap,
+        bool isPaid
+    ) private {
+        if (!isCreator[creator]) revert NotCreator();
+        if (_episodes[episodeId].exists) revert EpisodeExists();
+        _validatePricing(ratePerMinute, cap, isPaid);
+        _episodes[episodeId] = Episode({
+            creator: creator,
+            ratePerMinute: ratePerMinute,
+            previewSeconds: previewSeconds,
+            cap: cap,
+            isPaid: isPaid,
+            exists: true,
+            revenueRecipient: address(0)
+        });
+        emit EpisodeRegistered(episodeId, creator, ratePerMinute, previewSeconds, cap, isPaid);
+    }
+
+    function _setPricing(
+        Episode storage ep,
+        bytes32 episodeId,
+        uint96 ratePerMinute,
+        uint32 previewSeconds,
+        uint128 cap,
+        bool isPaid
+    ) private {
+        _validatePricing(ratePerMinute, cap, isPaid);
+        ep.ratePerMinute = ratePerMinute;
+        ep.previewSeconds = previewSeconds;
+        ep.cap = cap;
+        ep.isPaid = isPaid;
+        emit PricingUpdated(episodeId, ratePerMinute, previewSeconds, cap, isPaid);
+    }
+
+    /// Only one of the episode creator's own campaigns can share its revenue.
+    function _setRevenueRecipient(Episode storage ep, bytes32 episodeId, address recipient) private {
+        if (recipient != address(0)) {
+            if (campaignFactory == address(0) || !ICampaignFactory(campaignFactory).isCampaign(recipient)) {
+                revert InvalidRecipient();
+            }
+            if (IFilmCampaign(recipient).creator() != ep.creator) revert InvalidRecipient();
+        }
+        ep.revenueRecipient = recipient;
+        emit RevenueRecipientSet(episodeId, recipient);
+    }
+
+    function _existingEpisode(bytes32 episodeId) private view returns (Episode storage ep) {
         ep = _episodes[episodeId];
         if (!ep.exists) revert UnknownEpisode();
-        if (ep.creator != msg.sender) revert NotEpisodeOwner();
     }
 
     function _validatePricing(uint96 ratePerMinute, uint128 cap, bool isPaid) private view {

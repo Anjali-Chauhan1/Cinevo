@@ -31,5 +31,7 @@ export const api = {
     apiFetch<T>(url, { method: "POST", body: body ? JSON.stringify(body) : undefined }),
   patch: <T = unknown>(url: string, body?: unknown) =>
     apiFetch<T>(url, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
+  put: <T = unknown>(url: string, body?: unknown) =>
+    apiFetch<T>(url, { method: "PUT", body: body ? JSON.stringify(body) : undefined }),
   delete: <T = unknown>(url: string) => apiFetch<T>(url, { method: "DELETE" }),
 };

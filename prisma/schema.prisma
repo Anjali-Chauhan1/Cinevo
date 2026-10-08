@@ -44,6 +44,11 @@ model User {
   deviceHash   String?
   suspended    Boolean  @default(false)
   createdAt    DateTime @default(now())
+  // Onchain mode (CHAIN_MODE=onchain): the user's Privy embedded wallet.
+  privyUserId   String?  @unique
+  walletAddress String?  @unique
+  // Last "Get test money" faucet claim (testnet only), for rate limiting.
+  lastFaucetAt  DateTime?
 
   ledgerAccount    LedgerAccount?
   creator          Creator?
@@ -60,6 +65,7 @@ model User {
   moderatorOf      ModeratorAssignment[]
   chatActionsTaken ChatAction[]    @relation("ChatActionsTaken")
   kycSubmissions   KycSubmission[]
+  notifications    Notification[]
 }
 
 // One identity-verification attempt. Manual admin review stands in for a
@@ -129,6 +135,8 @@ model LedgerTransaction {
   refId         String?
   meta          String?  // JSON string, free-form context for audit/debug
   createdAt     DateTime @default(now())
+  // Onchain mode: the transaction this row mirrors.
+  txHash        String?
 
   @@index([accountId, createdAt])
 }
@@ -152,6 +160,8 @@ model Creator {
   verificationDocUrl String?
   subPriceRupeesPaise Int    @default(4900) // e.g. ₹49/month, stored as paise
   createdAt         DateTime @default(now())
+  // When the creator was registered in CinovaRegistry (onchain mode).
+  chainRegisteredAt DateTime?
 
   episodes      Episode[]
   emotes        Emote[]
@@ -199,6 +209,8 @@ model Episode {
   // history/reviews tied to an older cut stay attributable.
   videoVersion    Int      @default(1)
   createdAt       DateTime @default(now())
+  // When the episode and its current pricing were last written onchain.
+  chainSyncedAt   DateTime?
   updatedAt       DateTime @updatedAt
 
   watchSessions   WatchSession[]
@@ -244,6 +256,12 @@ model WatchSession {
   settledAt       DateTime?
 
   startedAt       DateTime @default(now())
+  // Onchain mode: the latest EIP-712 voucher the viewer's wallet signed.
+  // Amounts are stablecoin base units (stored as strings: they can exceed 2^53).
+  voucherUnits     String?
+  voucherExpiry    Int?
+  voucherSignature String?
+  settleTxHash     String?
 
   @@index([viewerId, episodeId, status])
 }
@@ -277,6 +295,7 @@ model Subscription {
   creator          Creator  @relation("CreatorSubscriptions", fields: [creatorId], references: [id])
   ratePerSecondPaiseScaled Int // ratePerMonth / (30*24*3600), scaled by 1e6 for precision
   startedAt        DateTime @default(now())
+  txHash           String?
   cancelledAt      DateTime?
   // every accrual (periodic sweep or on-demand touch) advances this and
   // debits the fan / credits the creator for elapsed seconds since.
@@ -304,6 +323,7 @@ model Tip {
   amountPaise Int
   message     String?
   createdAt   DateTime @default(now())
+  txHash      String?  @unique
 
   @@index([creatorId, createdAt])
   @@index([episodeId, createdAt])
@@ -349,6 +369,8 @@ model Campaign {
   fundedEpisodeId String? @unique
 
   createdAt       DateTime @default(now())
+  // Onchain mode: this film's FilmCampaign escrow contract.
+  contractAddress String?  @unique
 
   tiers       CampaignTier[]
   milestones  Milestone[]
@@ -410,6 +432,7 @@ model Backing {
   status        String   @default("ACTIVE")
   refundedAt    DateTime?
   createdAt     DateTime @default(now())
+  txHash        String?  @unique
 
   backerPass BackerPass?
 
@@ -592,4 +615,28 @@ model Report {
   // "OPEN" | "REVIEWED" | "ACTIONED" | "DISMISSED"
   status     String   @default("OPEN")
   createdAt  DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// In-app notifications
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  // e.g. "CREATOR_APPROVED", "PREMIERE_REMINDER", "MILESTONE_RELEASED" — see
+  // NotificationType in lib/constants.ts
+  type      String
+  title     String
+  body      String?
+  // In-app path to open when the notification is clicked, e.g. "/studio"
+  link      String?
+  // Set for notifications that must only ever be sent once (e.g. a premiere
+  // reminder per viewer per window); the unique index makes resends no-ops.
+  dedupeKey String?   @unique
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
 }

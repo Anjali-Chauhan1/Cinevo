@@ -131,6 +131,29 @@ export async function deleteMessage(moderatorId: string, messageId: string, reas
   return prisma.chatMessage.update({ where: { id: messageId }, data: { deleted: true } });
 }
 
+/** Moderators can act on viewers, but never on the creator, another
+ * moderator, or themselves. */
+async function assertCanModerate(moderatorId: string, creatorId: string, targetUserId: string) {
+  if (!(await isModerator(moderatorId, creatorId))) {
+    throw new ChatError("You don't have moderator permissions here");
+  }
+  if (targetUserId === moderatorId) throw new ChatError("You can't moderate yourself");
+  if (await isModerator(targetUserId, creatorId)) {
+    throw new ChatError("The creator and moderators can't be timed out or banned");
+  }
+}
+
+/** Timeouts and bans also clear the person's messages from this premiere,
+ * like on Twitch. Returns the ids so live clients can remove them too. */
+async function clearMessagesFrom(episodeId: string, userId: string) {
+  const messages = await prisma.chatMessage.findMany({
+    where: { episodeId, userId, deleted: false },
+    select: { id: true },
+  });
+  await prisma.chatMessage.updateMany({ where: { episodeId, userId }, data: { deleted: true } });
+  return messages.map((m) => m.id);
+}
+
 export async function timeoutUser(
   moderatorId: string,
   episodeId: string,
@@ -139,23 +162,21 @@ export async function timeoutUser(
   reason?: string
 ) {
   const episode = await prisma.episode.findUniqueOrThrow({ where: { id: episodeId } });
-  if (!(await isModerator(moderatorId, episode.creatorId))) {
-    throw new ChatError("You don't have moderator permissions here");
-  }
+  await assertCanModerate(moderatorId, episode.creatorId, targetUserId);
   const expiresAt = new Date(Date.now() + minutes * 60_000);
-  return prisma.chatAction.create({
+  const action = await prisma.chatAction.create({
     data: { episodeId, moderatorId, targetUserId, action: ChatActionType.TIMEOUT, reason, expiresAt },
   });
+  return { action, clearedMessageIds: await clearMessagesFrom(episodeId, targetUserId) };
 }
 
 export async function banUser(moderatorId: string, episodeId: string, targetUserId: string, reason?: string) {
   const episode = await prisma.episode.findUniqueOrThrow({ where: { id: episodeId } });
-  if (!(await isModerator(moderatorId, episode.creatorId))) {
-    throw new ChatError("You don't have moderator permissions here");
-  }
-  return prisma.chatAction.create({
+  await assertCanModerate(moderatorId, episode.creatorId, targetUserId);
+  const action = await prisma.chatAction.create({
     data: { episodeId, moderatorId, targetUserId, action: ChatActionType.BAN, reason },
   });
+  return { action, clearedMessageIds: await clearMessagesFrom(episodeId, targetUserId) };
 }
 
 export async function setSlowMode(moderatorId: string, episodeId: string, seconds: number) {

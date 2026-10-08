@@ -3,11 +3,16 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
+import type { Address } from "viem";
 import { api, ApiError } from "@/lib/client-api";
+import { useOnchain } from "@/components/web3/Onchain";
+import { getAddresses } from "@/lib/chain/config";
+import { subscriptionsAbi } from "@/lib/chain/abis";
 import { paise, paiseWhole } from "@/lib/format";
 import { EpisodeCard } from "@/components/EpisodeCard";
 
 interface ChannelData {
+  creatorWallet?: Address | null;
   creator: {
     id: string;
     handle: string;
@@ -32,6 +37,7 @@ export default function ChannelPage({ params }: { params: { handle: string } }) 
   const [data, setData] = useState<ChannelData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const chain = useOnchain();
 
   async function load() {
     try {
@@ -55,10 +61,17 @@ export default function ChannelPage({ params }: { params: { handle: string } }) 
   async function subscribe() {
     setBusy(true);
     try {
-      await api.post("/api/subscriptions", { creatorId: creator.id });
+      if (chain.enabled) {
+        // The fan's wallet starts the per-second subscription onchain; the server confirms it.
+        if (!data?.creatorWallet) throw new Error("This creator can't take subscriptions yet");
+        const txHash = await chain.sendTx({ address: getAddresses().subscriptions, abi: subscriptionsAbi, functionName: "subscribe", args: [data.creatorWallet] });
+        await api.post("/api/subscriptions", { creatorId: creator.id, txHash });
+      } else {
+        await api.post("/api/subscriptions", { creatorId: creator.id });
+      }
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not subscribe");
+      setError(err instanceof ApiError || err instanceof Error ? err.message : "Could not subscribe");
     } finally {
       setBusy(false);
     }
@@ -67,10 +80,16 @@ export default function ChannelPage({ params }: { params: { handle: string } }) 
   async function cancelSub() {
     setBusy(true);
     try {
-      await api.delete(`/api/subscriptions/${creator.id}`);
+      if (chain.enabled) {
+        if (!data?.creatorWallet) throw new Error("This creator isn't onchain");
+        const txHash = await chain.sendTx({ address: getAddresses().subscriptions, abi: subscriptionsAbi, functionName: "cancel", args: [data.creatorWallet] });
+        await api.delete(`/api/subscriptions/${creator.id}?txHash=${txHash}`);
+      } else {
+        await api.delete(`/api/subscriptions/${creator.id}`);
+      }
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not cancel");
+      setError(err instanceof ApiError || err instanceof Error ? err.message : "Could not cancel");
     } finally {
       setBusy(false);
     }

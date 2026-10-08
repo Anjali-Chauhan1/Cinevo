@@ -38,6 +38,7 @@ contract CinovaSubscriptions is ReentrancyGuard {
     event Cancelled(address indexed fan, address indexed creator);
 
     error NotCreator();
+    error NotPublisher();
     error SubscriptionsOff();
     error AlreadySubscribed();
     error NotSubscribed();
@@ -51,9 +52,19 @@ contract CinovaSubscriptions is ReentrancyGuard {
     /// @notice Creator sets their price. Existing subscribers keep the price
     /// they signed up at until they resubscribe.
     function setMonthlyPrice(uint128 price) external {
-        if (!registry.isCreator(msg.sender)) revert NotCreator();
-        monthlyPrice[msg.sender] = price;
-        emit MonthlyPriceSet(msg.sender, price);
+        _setMonthlyPrice(msg.sender, price);
+    }
+
+    /// @notice The Cinova server applying the price a creator set in the app.
+    function setMonthlyPriceFor(address creator, uint128 price) external {
+        if (!registry.hasRole(registry.PUBLISHER_ROLE(), msg.sender)) revert NotPublisher();
+        _setMonthlyPrice(creator, price);
+    }
+
+    function _setMonthlyPrice(address creator, uint128 price) private {
+        if (!registry.isCreator(creator)) revert NotCreator();
+        monthlyPrice[creator] = price;
+        emit MonthlyPriceSet(creator, price);
     }
 
     function subscribe(address creator) external nonReentrant {

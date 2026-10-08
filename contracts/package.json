@@ -8,7 +8,8 @@
     "test": "hardhat test",
     "node": "hardhat node",
     "deploy:local": "hardhat ignition deploy ignition/modules/CinovaLocal.ts --network localhost",
-    "deploy:monad-testnet": "hardhat ignition deploy ignition/modules/Cinova.ts --network monadTestnet --parameters ignition/parameters/monad-testnet.json"
+    "deploy:monad-testnet": "hardhat ignition deploy ignition/modules/CinovaTestnet.ts --network monadTestnet",
+    "export-app": "node scripts/export-to-app.mjs"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^4.2.0",

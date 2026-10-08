@@ -9,6 +9,8 @@ import { CampaignError } from "@/lib/ledger/campaigns";
 import { ReviewError } from "@/lib/ledger/reviews";
 import { ChatError } from "@/lib/chat";
 import { KycError } from "@/lib/kyc";
+import { MediaError } from "@/lib/media";
+import { ChainError } from "@/lib/chain/server";
 
 /**
  * Wraps a route handler so every domain error class defined across the
@@ -29,7 +31,9 @@ export function errorToResponse(err: unknown): NextResponse {
   if (err instanceof UnauthorizedError) return NextResponse.json({ error: err.message }, { status: 401 });
   if (err instanceof ForbiddenError) return NextResponse.json({ error: err.message }, { status: 403 });
   if (err instanceof ZodError) {
-    return NextResponse.json({ error: "Invalid input", details: err.flatten() }, { status: 400 });
+    // Lead with the first specific problem so forms can show it as-is.
+    const first = err.issues[0]?.message;
+    return NextResponse.json({ error: first ?? "Invalid input", details: err.flatten() }, { status: 400 });
   }
   if (
     err instanceof InsufficientBalanceError ||
@@ -41,7 +45,9 @@ export function errorToResponse(err: unknown): NextResponse {
     err instanceof CampaignError ||
     err instanceof ReviewError ||
     err instanceof ChatError ||
-    err instanceof KycError
+    err instanceof KycError ||
+    err instanceof MediaError ||
+    err instanceof ChainError
   ) {
     return NextResponse.json({ error: err.message }, { status: 400 });
   }

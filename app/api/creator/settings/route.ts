@@ -3,6 +3,9 @@ import { prisma } from "@/lib/db";
 import { requireCreator } from "@/lib/auth";
 import { creatorSettingsSchema, rupeesToPaiseInt } from "@/lib/validation";
 import { ok, withApiErrors } from "@/lib/api";
+import { VerificationStatus } from "@/lib/constants";
+import { isOnchain } from "@/lib/chain/config";
+import { setSubscriptionPriceOnchain } from "@/lib/chain/operator";
 
 export const PATCH = withApiErrors(async (req: NextRequest) => {
   const { creator } = await requireCreator();
@@ -19,5 +22,8 @@ export const PATCH = withApiErrors(async (req: NextRequest) => {
     },
   });
 
+  if (isOnchain && body.subPriceRupees !== undefined && updated.verificationStatus === VerificationStatus.APPROVED) {
+    await setSubscriptionPriceOnchain(updated.id);
+  }
   return ok({ creator: updated });
 });

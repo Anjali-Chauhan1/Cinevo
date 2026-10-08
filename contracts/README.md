@@ -12,12 +12,13 @@ for display.
 | Contract | What it does |
 |---|---|
 | `CinovaRegistry` | Roles, verified creators, episodes and their pricing, KYC-verified investors, the 10% platform fee and treasury |
-| `CinovaVault` | Viewer balances. Pay-per-minute settlement from EIP-712 vouchers. 10-minute withdraw delay |
+| `CinovaVault` | Everyone's Cinova balance (viewers, creators, treasury). Pay-per-minute settlement from EIP-712 vouchers. Backing films from the balance. 10-minute withdraw delay |
 | `CinovaSubscriptions` | Per-second creator subscriptions, paid from the vault balance |
 | `CinovaTips` | Instant tips from the vault balance, 90% creator / 10% platform |
 | `BackerPass` | Non-transferable ERC-1155 pass per film tier |
 | `CampaignFactory` | Deploys one `FilmCampaign` per film (EIP-1167 clones) |
 | `FilmCampaign` | Escrow, perk tiers, Producer Units, milestone releases, refunds, revenue waterfall |
+| `CinovaTestUSD` | Testnet stablecoin (6 decimals, owner-only mint) for the in-app "Get test money" faucet |
 
 ### Roles (held in `CinovaRegistry`)
 
@@ -27,10 +28,20 @@ for display.
 | `VERIFIER_ROLE` | Admin team | Register and remove creators |
 | `KYC_ROLE` | Licensed KYC partner | Mark investors as verified (enables Producer Units) |
 | `MILESTONE_APPROVER_ROLE` | Admin team (MVP) | Release or reject milestone proof |
-| `VAULT_SPENDER_ROLE` | `CinovaSubscriptions`, `CinovaTips` | Spend from viewer balances |
+| `VAULT_SPENDER_ROLE` | `CinovaSubscriptions`, `CinovaTips` | Move balance between accounts inside the vault |
+| `PUBLISHER_ROLE` | The Cinova server | Publish a verified creator's episodes, pricing, revenue links, campaigns, subscription price and milestone proof. It can never move anyone's money |
 
-The deployer gets admin, verifier, KYC and approver roles. Move `DEFAULT_ADMIN_ROLE` to a
-multisig after deployment.
+The deployer gets every role and is the app's operator account. For production, split these
+onto separate keys and move `DEFAULT_ADMIN_ROLE` to a multisig.
+
+## One balance
+
+Tokens enter the vault through deposits (top-ups, and campaigns paying out releases, refunds
+and revenue) and leave only through the delayed withdrawal. Everything in between is a balance
+update inside the vault: a viewer paying for a film, a tip, a subscription charge, the
+creator's and the platform's earnings. Creators withdraw what they've earned like anyone else.
+Fans back campaigns straight from their balance (`vault.backCampaign` / `vault.buyUnits`), so
+they never need tokens in their own wallet.
 
 ## How the money moves
 
@@ -48,9 +59,11 @@ server calls `vault.settle(voucher, signature)`. The vault:
 - pays only the increase over what that session already settled (replays and older vouchers revert)
 - stops at the episode cap, across every session for that viewer (rewatches are free)
 - never takes more than the balance; a shortfall can be collected later with the same voucher
-- accepts smart-account wallets as well as normal ones (ERC-1271)
-- sends 10% to the treasury, and 90% to the creator, or through the film's Producer Unit
-  waterfall if the episode is linked to a campaign
+- checks the wallet's own signature first, then ERC-1271 — Privy's gas sponsorship upgrades
+  embedded wallets with EIP-7702, which gives them code
+- credits 10% to the treasury's balance and 90% to the creator's, minus the unit holders'
+  share if the episode is linked to a film's Producer Unit waterfall (only that share is sent
+  to the campaign)
 
 **Subscriptions.** A subscription stores the monthly price and when it was last charged.
 Nothing happens every second; what's owed (`price × seconds / 30 days`) is charged whenever
@@ -60,14 +73,15 @@ the subscription pauses. Use `isActive(fan, creator)` for access checks.
 **Tips.** `tips.tip(creator, filmId, amount, messageHash)` takes the amount from the vault
 balance and splits it 90/10 immediately. The message stays off-chain; its hash goes on-chain.
 
-**Backing.** Fans call `back(tier, ackHash)` on the film's campaign. `ackHash` is the hash of
-the risk acknowledgement they accepted, and it is required. Money stays in the campaign:
+**Backing.** Fans call `vault.backCampaign(campaign, tier, ackHash)` (or `back` on the campaign
+with their own tokens). `ackHash` is the hash of the exact risk acknowledgement they ticked,
+and it is required. Money stays in the campaign:
 
-- Goal met by the deadline → **Funded**. The creator submits proof per milestone, an approver
-  releases it, and the creator receives that share minus the 10% fee. The last milestone
-  marks the film **Delivered**.
-- Goal missed, or delivery date missed → **Failed**. Every backer can `claimRefund()`, and
-  their passes are burned.
+- Goal met by the deadline → **Funded**. Proof is submitted per milestone (by the creator, or
+  the server for them), an approver releases it, and that share minus the 10% fee lands in the
+  creator's balance. The last milestone marks the film **Delivered**.
+- Goal missed, or delivery date missed → **Failed**. Every backer can `claimRefund()` into
+  their balance, and their passes are burned.
 
 State changes driven by dates happen lazily. Any call (or `syncState()`) applies them, and
 `currentState()` shows the up-to-date state without a transaction.
@@ -81,40 +95,44 @@ per film, and not transferable. Once the film is funded, link an episode with
 | Until holders receive 120% of what they put in | 50% | 40% | 10% |
 | After that | 20% | 70% | 10% |
 
-Holders call `claimRevenue()` whenever they like. Gas stays the same however many holders
-there are (`accRevenuePerUnit` accounting).
+Holders call `claimRevenue()` whenever they like (it lands in their balance). Gas stays the
+same however many holders there are (`accRevenuePerUnit` accounting). Only the vault can route
+revenue into a campaign.
 
-## What the app must do
+## How the app uses them
 
-- **Settle on withdraw requests.** When a `WithdrawRequested` event arrives, settle the
-  viewer's open sessions and call `claimAccrued` for their subscriptions within the 10-minute
-  window. Otherwise that money leaves with the withdrawal.
-- **Sweep subscriptions** periodically with `claimAccrued`, so creators get paid and paused
-  subscriptions show up.
-- **Settle sessions** when the viewer stops, closes the tab, or hits the cap. Keep the latest
-  voucher per session until it's settled.
-- **Hash ids consistently.** `episodeId` and `filmId` are `keccak256` of the app's episode id.
+The Next app's onchain mode (`lib/chain/`) already does all of this; see the main README.
+
+- **Settles on withdraw requests.** When a user confirms a withdrawal request, the server
+  settles their open sessions and charges their subscriptions inside the 10-minute window.
+- **Sweeps subscriptions** every few hours with `claimAccrued`.
+- **Settles sessions** when the viewer stops or goes quiet, from the latest signed voucher.
+- **Hashes ids consistently.** `episodeId`, `filmId` and `sessionId` are `keccak256` of the
+  app's ids.
 
 ## Commands
 
 ```bash
 npm install
 npm run build          # compile
-npm test               # 26 tests: vouchers, caps, withdraw delay, subscriptions, tips, escrow, refunds, waterfall
+npm test               # 32 tests: vouchers, caps, withdraw delay, subscriptions, tips, escrow,
+                       # backing from balance, publisher limits, refunds, waterfall
+npm run export-app     # copy ABIs + deployed addresses into the app (lib/chain/)
 
 # Local chain + full deployment with a mintable MockUSDC
 npm run node           # terminal 1
 npm run deploy:local   # terminal 2
 
-# Monad testnet
+# Monad testnet (deploys CinovaTestUSD too, and gives the operator a faucet float)
 npx hardhat keystore set MONAD_TESTNET_RPC_URL
 npx hardhat keystore set MONAD_DEPLOYER_PRIVATE_KEY
-# then fill in ignition/parameters/monad-testnet.json (stablecoin + treasury addresses)
 npm run deploy:monad-testnet
+npm run export-app
 ```
 
-Check the RPC URL, chain ID and stablecoin address against the Monad docs before deploying.
-Mainnet isn't configured yet on purpose.
+On a Windows machine where Application Control blocks Hardhat's native engine, run these
+inside WSL. Mainnet isn't configured yet on purpose: it needs a real stablecoin and the
+`Cinova` module (which takes a `token` parameter) instead of the test token.
 
 ## Known limits
 
@@ -124,6 +142,4 @@ Mainnet isn't configured yet on purpose.
   refunds everyone in full.
 - **Producer Units can't be transferred at all.** The doc's 12-month lock-up is stricter here
   until a secondary market exists.
-- **Payouts are pushed to the creator.** If the stablecoin issuer blocks a creator's address,
-  settlements for their episodes revert until it's resolved. Viewer balances are unaffected.
 - **No emergency pause.** Consider adding one to deposits and settlement before mainnet.
