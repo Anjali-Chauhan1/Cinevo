@@ -243,12 +243,51 @@ Unit holders claim accumulated revenue from the campaign. These percentages desc
 
 Onchain mode uses Privy login and embedded wallets, signed EIP-712 viewing vouchers, and receipt-verified transactions. The server operator handles actions such as publishing episode configuration, creator approval, and milestone releases. Gas sponsorship is requested by the client by default and requires a working provider configuration.
 
-The repository configures **Monad testnet, chain ID 10143**, and a **local Hardhat chain, ID 31337**. The checked-in deployment file currently contains local-chain addresses only; it is not evidence of a running node or a Monad deployment.
+The repository configures **Monad testnet, chain ID 10143**, and a **local Hardhat chain, ID 31337**.
+
+### Current Monad testnet deployment
+
+The contracts are deployed on Monad testnet (deployed 9 October 2026) and recorded in
+[lib/chain/deployments.json](lib/chain/deployments.json) and `contracts/ignition/deployments/chain-10143/`.
+Anyone running the app in onchain mode with chain ID `10143` uses these contracts; you only need
+to redeploy after changing the contracts.
+
+| Contract | Address | Role |
+| --- | --- | --- |
+| `CinovaVault` | [`0x97aAfb7F0776E763280369489dAa5E6ACF4abca6`](https://testnet.monadexplorer.com/address/0x97aAfb7F0776E763280369489dAa5E6ACF4abca6) | Balances, voucher settlement, withdrawals |
+| `CinovaRegistry` | [`0xdC0Ec3b71eb9228059A98afa52768308406e72C7`](https://testnet.monadexplorer.com/address/0xdC0Ec3b71eb9228059A98afa52768308406e72C7) | Roles, creators, episodes and pricing |
+| `CinovaSubscriptions` | [`0xeEE76a9bc472A732AB75B6E9df59bE00556C49c9`](https://testnet.monadexplorer.com/address/0xeEE76a9bc472A732AB75B6E9df59bE00556C49c9) | Per-second subscriptions |
+| `CinovaTips` | [`0x61bD238c09b590DAD41b3455E612c3BB6Bb55481`](https://testnet.monadexplorer.com/address/0x61bD238c09b590DAD41b3455E612c3BB6Bb55481) | Tips |
+| `CampaignFactory` | [`0x4FcC23A8528E26fba51BD9a2B4F417Af8C0ca89e`](https://testnet.monadexplorer.com/address/0x4FcC23A8528E26fba51BD9a2B4F417Af8C0ca89e) | Deploys one FilmCampaign escrow per film |
+| `BackerPass` | [`0xcE99a9ee7DD1af77e47036fe679fd1aDfFf2F8ac`](https://testnet.monadexplorer.com/address/0xcE99a9ee7DD1af77e47036fe679fd1aDfFf2F8ac) | Non-transferable backer passes |
+| `CinovaTestUSD` | [`0x26769eCfF7207a551744632B5eEc71b0056a2816`](https://testnet.monadexplorer.com/address/0x26769eCfF7207a551744632B5eEc71b0056a2816) | Test stablecoin (6 decimals) for the faucet |
+
+The operator account is `0x455a064eB69b064124bcE89f677Ce89d50B92911`. It deployed the contracts,
+holds every role (admin, verifier, KYC, milestone approver, publisher) and pays gas for the
+server's own transactions, so keep it topped up with testnet MON from
+[faucet.monad.xyz](https://faucet.monad.xyz). It also holds the test-USD float that the
+wallet page's test-money button pays out. Its private key is kept only in local `.env` files and
+is never committed.
+
+The Privy application in use is `cmuzsncv8000y0cjn66lxgq55` (an App ID is public; the App
+Secret is not).
 
 ### Monad testnet setup
 
-1. Configure a Privy application for the email/Google login methods used by the app, embedded wallets, the target chain, and any required gas sponsorship.
-2. Prepare a testnet-funded deployer/operator wallet.
+To run against the existing deployment, skip to step 4 and use the shared Privy App ID with
+your own copy of the App Secret and operator key (ask the project owner). Steps 1–3 are for
+setting up a new Privy app or a new deployment.
+
+1. Configure the Privy application at [dashboard.privy.io](https://dashboard.privy.io):
+   - **Login methods:** Email and Google on; external wallets and passkeys off.
+   - **Wallet infrastructure → Fee sponsorship:** "Sponsor gas fees" on, **Monad Testnet** added
+     as a supported chain, and **"Allow transactions from the client" on**. The app sends users'
+     transactions from the browser with sponsorship, so they fail without this setting. Leave
+     swap-fee sponsorship off.
+   - **App settings → Basics:** add `http://localhost:3001` (and any deployed domain) to the
+     allowed origins, and create the App Secret.
+2. Prepare a fresh deployer/operator wallet used for nothing else, funded with testnet MON
+   (about 1 MON covers a full deployment).
 3. Install, compile, test, and deploy the contract package:
 
 ```bash
@@ -263,7 +302,9 @@ npm run export-app
 cd ..
 ```
 
-The export command regenerates `lib/chain/abis.ts` and `lib/chain/deployments.json` from local artifacts and Ignition deployment records. Review both generated files when changing deployments.
+The export command regenerates `lib/chain/abis.ts` and `lib/chain/deployments.json` from local artifacts and Ignition deployment records. Review both generated files when changing deployments, and commit them together with `contracts/ignition/deployments/chain-10143/` so everyone points at the same contracts.
+
+Instead of the Hardhat keystore, the deploy also reads `MONAD_TESTNET_RPC_URL` and `MONAD_DEPLOYER_PRIVATE_KEY` from environment variables. Ignition asks for confirmation before deploying to a live network.
 
 4. Configure the app's `.env`:
 
@@ -277,7 +318,7 @@ PRIVY_APP_SECRET="your-app-secret"
 OPERATOR_PRIVATE_KEY="your-testnet-operator-private-key"
 ```
 
-The RPC URL above is the repository's configured testnet default. The conversion rate is a fixed application setting, not a live exchange-rate feed. Keep the core database, session, and realtime settings as well. Only public settings belong in `NEXT_PUBLIC_*` variables.
+`NEXT_PUBLIC_RPC_URL` is optional; without it the app uses `https://testnet-rpc.monad.xyz`. The conversion rate is a fixed application setting, not a live exchange-rate feed. Keep the core database, session, and realtime settings as well. Only public settings belong in `NEXT_PUBLIC_*` variables.
 
 5. Restart the app, sign in with Privy, and promote an existing account if needed:
 
@@ -285,7 +326,9 @@ The RPC URL above is the repository's configured testnet default. The conversion
 npm run make-admin -- you@example.com
 ```
 
-Approve creators after they have signed in and linked their wallets. Use the wallet page's test-money flow to fund onchain activity; seeded demo balances do not create token balances in the vault.
+Approve creators after they have signed in and linked their wallets. Use the wallet page's test-money flow (INR 500, once an hour per account) to fund onchain activity; seeded demo balances do not create token balances in the vault. Existing password accounts have no wallet: in onchain mode everyone signs in through Privy, and an account with the same email is linked rather than duplicated.
+
+Every onchain payment in the wallet history links to its receipt on the Monad testnet explorer.
 
 ### Local contract development
 
@@ -367,7 +410,9 @@ Build with `npm run build`, then run `npm run start` after configuring the envir
 - **Media processing:** uploads accept MP4, MOV, or WebM up to 1 GiB and JPG, PNG, or WebP thumbnails up to 5 MiB. The implementation serves files directly; it has no transcoding pipeline or adaptive streaming service. Playback depends on browser codec support.
 - **Demo payments:** local deposits, grants, and withdrawals simulate accounting; there is no bank, card, or UPI integration.
 - **Identity review:** KYC is an application-managed submission and admin review flow, not an integrated external identity-verification provider.
-- **Chain scope:** contracts are unaudited, mainnet is not configured, and the contract package documents additional limits such as no emergency pause. See [contract limitations](contracts/README.md#known-limits).
+- **Chain scope:** contracts are deployed on Monad testnet only. They are unaudited, mainnet is not configured, and the contract package documents additional limits such as no emergency pause. See [contract limitations](contracts/README.md#known-limits).
+- **Operator key:** one testnet key holds every contract role and pays the server's gas. Production needs separate keys per role, with admin rights held by a multisig.
+- **Client-side gas sponsorship:** with "Allow transactions from the client" on, anyone holding the public App ID can spend the app's Privy sponsorship credits on Monad testnet. Before mainnet, move sponsorship server-side or restrict it with Privy policies.
 
 ## Troubleshooting
 
@@ -383,3 +428,7 @@ Build with `npm run build`, then run `npm run start` after configuring the envir
 | `No Cinova contracts deployed for chain ...` | Deploy to the selected chain, export the deployment artifacts, and restart or rebuild the app. |
 | Onchain provider reports a missing app ID | Set `NEXT_PUBLIC_PRIVY_APP_ID`, or unset `NEXT_PUBLIC_CHAIN_MODE` to return to demo mode. |
 | Seeded funds do not appear onchain | Demo grants live only in SQLite; use the onchain test-money flow. |
+| Tips, subscriptions, or backing fail while sign-in and test money work | Privy gas sponsorship is not covering the transaction. Check the Fee sponsorship page (Monad Testnet added, client transactions allowed, credits available); Privy subsidises Monad testnet on request at monad@privy.io. |
+| Privy reports an origin or domain error | Add the exact site origin, such as `http://localhost:3001`, to the Privy app's allowed origins. |
+| Creator approval fails in onchain mode | The creator must sign in through Privy first so their account has a wallet to register. |
+| Operator transactions start failing | Check the operator account's MON balance on the explorer and top it up from the faucet. |
