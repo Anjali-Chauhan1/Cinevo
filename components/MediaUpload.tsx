@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { upload } from "@vercel/blob/client";
 
 /** Reads a video file's length in the browser, before it's uploaded. */
 function readDuration(file: File): Promise<number> {
@@ -44,6 +45,57 @@ function uploadWithProgress(url: string, file: File, onProgress: (pct: number) =
   });
 }
 
+const EXTENSIONS: Record<string, string> = {
+  "video/mp4": "mp4",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+let blobEnabled: Promise<boolean> | null = null;
+/** Whether the server has a Blob store (deployed) or writes to disk (local). */
+function isBlobEnabled() {
+  blobEnabled ??= fetch("/api/uploads/blob")
+    .then((r) => r.json())
+    .then((d: { enabled?: boolean }) => Boolean(d.enabled))
+    .catch(() => false);
+  return blobEnabled;
+}
+
+/**
+ * Uploads a video or thumbnail and returns its stored file name. With a Blob
+ * store the browser sends the file straight there (hosting caps requests
+ * through the server at ~4.5 MB); otherwise it streams to the disk route.
+ */
+async function uploadMedia(kind: "video" | "thumbnail", file: File, onProgress: (pct: number) => void): Promise<string> {
+  if (!(await isBlobEnabled())) {
+    if (kind === "video") {
+      const { videoKey } = await uploadWithProgress("/api/uploads/video", file, onProgress);
+      return videoKey.slice("upload:".length);
+    }
+    const { thumbnailUrl } = await uploadWithProgress("/api/uploads/thumbnail", file, onProgress);
+    return thumbnailUrl.split("/").pop()!;
+  }
+  const ext = EXTENSIONS[file.type];
+  if (!ext) throw new Error(kind === "video" ? "Upload an MP4, MOV or WebM video" : "Upload a JPG, PNG or WebP image");
+  const name = `${crypto.randomUUID()}.${ext}`;
+  try {
+    await upload(`${kind}s/${name}`, file, {
+      access: "private",
+      handleUploadUrl: "/api/uploads/blob",
+      contentType: file.type,
+      // Large videos go up in parts, which is faster and survives hiccups.
+      multipart: file.size > 50 * 1024 * 1024,
+      onUploadProgress: ({ percentage }) => onProgress(Math.round(percentage)),
+    });
+  } catch (err) {
+    throw new Error(err instanceof Error ? `Upload failed: ${err.message}` : "Upload failed");
+  }
+  return name;
+}
+
 const MAX_VIDEO_MB = 1024;
 
 export function VideoUpload({
@@ -71,7 +123,7 @@ export function VideoUpload({
       const duration = await readDuration(file);
       if (!Number.isFinite(duration) || duration < 10) throw new Error("Videos must be at least 10 seconds long");
       setProgress(0);
-      const { videoKey } = await uploadWithProgress("/api/uploads/video", file, setProgress);
+      const videoKey = `upload:${await uploadMedia("video", file, setProgress)}`;
       setDone(file.name);
       onUploaded({ videoKey, durationSeconds: Math.round(duration), fileName: file.name });
     } catch (err) {
@@ -123,8 +175,7 @@ export function ThumbnailUpload({ value, onChange }: { value?: string | null; on
     }
     setBusy(true);
     try {
-      const { thumbnailUrl } = await uploadWithProgress("/api/uploads/thumbnail", file, () => {});
-      onChange(thumbnailUrl);
+      onChange(`/api/media/thumbnails/${await uploadMedia("thumbnail", file, () => {})}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {

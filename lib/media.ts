@@ -6,6 +6,7 @@ import path from "path";
 import { Readable, Transform } from "stream";
 import { pipeline } from "stream/promises";
 import type { ReadableStream as WebReadableStream } from "stream/web";
+import { get, head } from "@vercel/blob";
 
 export class MediaError extends Error {
   constructor(message: string) {
@@ -27,7 +28,13 @@ export const MEDIA = {
 const STORAGE_ROOT = path.join(process.cwd(), "storage");
 const DIRS = { video: path.join(STORAGE_ROOT, "videos"), thumbnail: path.join(STORAGE_ROOT, "thumbnails") };
 
-type Kind = keyof typeof DIRS;
+export type Kind = keyof typeof DIRS;
+
+// Vercel has no writable disk and caps request bodies at ~4.5 MB, so when a
+// Blob store is connected the browser uploads straight into it (see
+// /api/uploads/blob) as PRIVATE blobs, and the routes below stream them back.
+export const blobStorageEnabled = () => Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+export const blobPathFor = (kind: Kind, name: string) => `${kind}s/${name}`;
 
 interface FileType {
   ext: string;
@@ -53,6 +60,13 @@ const TYPES: Record<Kind, FileType[]> = {
 };
 
 const FILE_NAME = /^[0-9a-f-]{36}\.(mp4|mov|webm|jpg|png|webp)$/;
+
+/** Content type for a stored file name of this kind, or null if it isn't one. */
+export function mediaContentType(kind: Kind, name: string): string | null {
+  if (!FILE_NAME.test(name)) return null;
+  const ext = name.split(".").pop();
+  return TYPES[kind].find((t) => t.ext === ext)?.contentType ?? null;
+}
 
 /**
  * Streams an upload straight to disk (never buffering a whole video in
@@ -112,32 +126,51 @@ export async function assertValidVideoKey(videoKey: string) {
   if (!/^https?:\/\//.test(videoKey)) throw new MediaError("Upload a video file");
 }
 
-/** Path, size and content type for a stored file; throws if it doesn't exist. */
-export async function resolveMediaFile(kind: Kind, name: string) {
-  if (!FILE_NAME.test(name)) throw new MediaError("Unknown file");
+type MediaFile =
+  | { source: "disk"; filePath: string; size: number; contentType: string }
+  | { source: "blob"; pathname: string; size: number; contentType: string };
+
+/** Where a stored file lives, its size and content type; throws if it doesn't exist. */
+export async function resolveMediaFile(kind: Kind, name: string): Promise<MediaFile> {
+  const contentType = mediaContentType(kind, name);
+  if (!contentType) throw new MediaError("Unknown file");
+  if (blobStorageEnabled()) {
+    const pathname = blobPathFor(kind, name);
+    const info = await head(pathname).catch(() => null);
+    if (!info) throw new MediaError("Unknown file");
+    return { source: "blob", pathname, size: info.size, contentType };
+  }
   const filePath = path.join(DIRS[kind], name);
   const info = await stat(filePath).catch(() => null);
   if (!info?.isFile()) throw new MediaError("Unknown file");
-  const ext = name.split(".").pop()!;
-  const contentType = TYPES[kind].find((t) => t.ext === ext)!.contentType;
-  return { filePath, size: info.size, contentType };
+  return { source: "disk", filePath, size: info.size, contentType };
 }
 
 /**
  * Builds a response for a stored file, honouring HTTP Range requests so
  * video players can seek and stream without downloading the whole file.
  */
-export function fileResponse(
-  file: { filePath: string; size: number; contentType: string },
-  rangeHeader: string | null,
-  cacheControl: string
-): NextResponse {
+export async function fileResponse(file: MediaFile, rangeHeader: string | null, cacheControl: string): Promise<NextResponse> {
   const headers: Record<string, string> = {
     "Content-Type": file.contentType,
     "Accept-Ranges": "bytes",
     "Cache-Control": cacheControl,
     "X-Content-Type-Options": "nosniff",
   };
+
+  if (file.source === "blob") {
+    // The Blob store answers Range requests itself; pass them through.
+    const result = await get(file.pathname, {
+      access: "private",
+      headers: rangeHeader ? { Range: rangeHeader } : undefined,
+    });
+    if (!result || result.statusCode !== 200) throw new MediaError("Unknown file");
+    const contentRange = result.headers.get("content-range");
+    const contentLength = result.headers.get("content-length");
+    if (contentRange) headers["Content-Range"] = contentRange;
+    if (contentLength) headers["Content-Length"] = contentLength;
+    return new NextResponse(result.stream as ReadableStream, { status: contentRange ? 206 : 200, headers });
+  }
 
   const match = rangeHeader?.match(/^bytes=(\d*)-(\d*)$/);
   if (!match || (!match[1] && !match[2])) {
