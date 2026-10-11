@@ -3,14 +3,19 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { api, ApiError } from "@/lib/client-api";
-import { relativeTime } from "@/lib/format";
+import { paise, relativeTime } from "@/lib/format";
 
 interface PendingCreator {
   id: string;
   channelName: string;
   handle: string;
   verificationDocUrl: string | null;
-  user: { email: string; displayName: string; createdAt: string };
+  bio: string | null;
+  bannerUrl: string | null;
+  socialLinks: string | null; // JSON array of strings
+  subPriceRupeesPaise: number;
+  createdAt: string;
+  user: { email: string; displayName: string; createdAt: string; region: string; kycStatus: string };
 }
 interface PendingKyc {
   id: string;
@@ -127,19 +132,7 @@ export default function AdminPage() {
             <Empty text="No pending creator verifications." />
           ) : (
             creators.map((c) => (
-              <div key={c.id} className="card p-4 text-sm">
-                <div className="font-medium">{c.channelName} (@{c.handle})</div>
-                <div className="text-xs text-[var(--text-dim)]">{c.user.displayName} · {c.user.email}</div>
-                {c.verificationDocUrl && (
-                  <a href={c.verificationDocUrl} target="_blank" rel="noreferrer" className="text-xs text-[var(--accent)]">
-                    {c.verificationDocUrl}
-                  </a>
-                )}
-                <div className="mt-2 flex gap-2">
-                  <button className="btn-primary !py-1 !px-3 text-xs" onClick={() => approveCreator(c.id)}>Approve</button>
-                  <button className="btn-danger !py-1 !px-3 text-xs" onClick={() => rejectCreator(c.id)}>Reject</button>
-                </div>
-              </div>
+              <CreatorReviewCard key={c.id} creator={c} onApprove={() => approveCreator(c.id)} onReject={() => rejectCreator(c.id)} />
             ))
           ))}
 
@@ -297,4 +290,60 @@ function KycReviewCard({ submission: k, onDone }: { submission: PendingKyc; onDo
 
 function Empty({ text }: { text: string }) {
   return <p className="text-sm text-[var(--text-dim)]">{text}</p>;
+}
+
+function parseSocialLinks(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const links: unknown = JSON.parse(raw);
+    return Array.isArray(links) ? links.filter((l): l is string => typeof l === "string" && l.trim() !== "") : [];
+  } catch {
+    return [];
+  }
+}
+
+function CreatorReviewCard({ creator: c, onApprove, onReject }: { creator: PendingCreator; onApprove: () => void; onReject: () => void }) {
+  const [open, setOpen] = useState(false);
+  const socialLinks = parseSocialLinks(c.socialLinks);
+  // Only what the creator actually submitted counts; with none of it there is nothing to expand.
+  const hasDetails = Boolean(c.bio?.trim() || c.bannerUrl?.trim() || c.verificationDocUrl?.trim() || socialLinks.length);
+  const account = `${c.user.displayName} · ${c.user.email}`;
+
+  return (
+    <div className="card p-4 text-sm">
+      <div className="font-medium">{c.channelName} (@{c.handle})</div>
+      {hasDetails ? (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          aria-controls={`creator-details-${c.id}`}
+          className="text-left text-xs text-[var(--accent)] hover:underline"
+        >
+          {account} {open ? "▴" : "▾"}
+        </button>
+      ) : (
+        <div className="text-xs text-[var(--text-dim)]">{account}</div>
+      )}
+      {open && hasDetails && (
+        <dl id={`creator-details-${c.id}`} className="mt-3 grid gap-x-4 gap-y-2 rounded-lg bg-[var(--surface-raised)] p-3 text-xs sm:grid-cols-2">
+          <div><dt className="text-[var(--text-dim)]">Applied</dt><dd>{relativeTime(c.createdAt)}</dd></div>
+          <div><dt className="text-[var(--text-dim)]">Account created</dt><dd>{relativeTime(c.user.createdAt)}</dd></div>
+          {c.user.region && <div><dt className="text-[var(--text-dim)]">Region</dt><dd>{c.user.region}</dd></div>}
+          {c.user.kycStatus && <div><dt className="text-[var(--text-dim)]">KYC</dt><dd>{c.user.kycStatus}</dd></div>}
+          <div><dt className="text-[var(--text-dim)]">Subscription price</dt><dd>{paise(c.subPriceRupeesPaise)}/month</dd></div>
+          {c.bio?.trim() && <div className="sm:col-span-2"><dt className="text-[var(--text-dim)]">Bio</dt><dd className="whitespace-pre-line">{c.bio}</dd></div>}
+          {c.verificationDocUrl?.trim() && <div className="sm:col-span-2"><dt className="text-[var(--text-dim)]">Verification link</dt><dd className="break-all">{c.verificationDocUrl}</dd></div>}
+          {c.bannerUrl?.trim() && <div className="sm:col-span-2"><dt className="text-[var(--text-dim)]">Banner</dt><dd className="break-all">{c.bannerUrl}</dd></div>}
+          {socialLinks.length > 0 && (
+            <div className="sm:col-span-2"><dt className="text-[var(--text-dim)]">Social links</dt><dd className="flex flex-col break-all">{socialLinks.map((l) => <span key={l}>{l}</span>)}</dd></div>
+          )}
+        </dl>
+      )}
+      <div className="mt-2 flex gap-2">
+        <button className="btn-primary !py-1 !px-3 text-xs" onClick={onApprove}>Approve</button>
+        <button className="btn-danger !py-1 !px-3 text-xs" onClick={onReject}>Reject</button>
+      </div>
+    </div>
+  );
 }
