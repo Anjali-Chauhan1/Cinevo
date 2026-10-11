@@ -31,6 +31,8 @@ export interface VoucherMessage {
 export interface OnchainContextValue {
   enabled: boolean;
   ready: boolean;
+  authenticated: boolean;
+  sessionError: string | null;
   walletAddress: Address | null;
   login: () => void;
   logout: () => Promise<void>;
@@ -41,6 +43,8 @@ export interface OnchainContextValue {
 const disabled: OnchainContextValue = {
   enabled: false,
   ready: true,
+  authenticated: false,
+  sessionError: null,
   walletAddress: null,
   login: () => {},
   logout: async () => {},
