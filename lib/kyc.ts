@@ -18,7 +18,7 @@ const KYC_STORAGE_DIR = path.join(process.cwd(), "storage", "kyc");
 
 // Vercel has no writable disk, so when a Blob store is connected the files go
 // there instead — as PRIVATE blobs, readable only with the store's token.
-const useBlob = () => Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+const blobStorageEnabled = () => Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 const blobPath = (key: string) => `kyc/${key}`;
 
 const FILE_SIGNATURES: Array<{ ext: string; contentType: string; magic: number[] }> = [
@@ -44,7 +44,7 @@ async function storeKycFile(file: File, label: string, allowPdf: boolean): Promi
     throw new KycError(`${label} must be a ${allowPdf ? "JPG, PNG or PDF" : "JPG or PNG"} file`);
   }
   const key = `${randomUUID()}.${type.ext}`;
-  if (useBlob()) {
+  if (blobStorageEnabled()) {
     await put(blobPath(key), bytes, { access: "private", contentType: type.contentType, addRandomSuffix: false });
     return key;
   }
@@ -59,7 +59,7 @@ export async function readKycFile(key: string) {
   // storage directory regardless.
   if (!/^[0-9a-f-]{36}\.(jpg|png|pdf)$/.test(key)) throw new KycError("Invalid file reference");
   const type = FILE_SIGNATURES.find((sig) => key.endsWith(`.${sig.ext}`))!;
-  if (useBlob()) {
+  if (blobStorageEnabled()) {
     const result = await get(blobPath(key), { access: "private", useCache: false });
     if (!result || result.statusCode !== 200) throw new KycError("Document not found");
     return { bytes: Buffer.from(await new Response(result.stream).arrayBuffer()), contentType: type.contentType };
