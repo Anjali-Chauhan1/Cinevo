@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
+import { get, put } from "@vercel/blob";
 import { prisma } from "@/lib/db";
 import { KYC, KycStatus, KycSubmissionStatus, Region } from "@/lib/constants";
 
@@ -14,6 +15,11 @@ export class KycError extends Error {
 // Outside public/ on purpose: identity documents must only ever be served
 // through the admin-only file route, never as a static asset.
 const KYC_STORAGE_DIR = path.join(process.cwd(), "storage", "kyc");
+
+// Vercel has no writable disk, so when a Blob store is connected the files go
+// there instead — as PRIVATE blobs, readable only with the store's token.
+const useBlob = () => Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+const blobPath = (key: string) => `kyc/${key}`;
 
 const FILE_SIGNATURES: Array<{ ext: string; contentType: string; magic: number[] }> = [
   { ext: "jpg", contentType: "image/jpeg", magic: [0xff, 0xd8, 0xff] },
@@ -37,8 +43,13 @@ async function storeKycFile(file: File, label: string, allowPdf: boolean): Promi
   if (!type || (!allowPdf && type.ext === "pdf")) {
     throw new KycError(`${label} must be a ${allowPdf ? "JPG, PNG or PDF" : "JPG or PNG"} file`);
   }
-  await mkdir(KYC_STORAGE_DIR, { recursive: true });
   const key = `${randomUUID()}.${type.ext}`;
+  if (useBlob()) {
+    await put(blobPath(key), bytes, { access: "private", contentType: type.contentType, addRandomSuffix: false });
+    return key;
+  }
+  if (process.env.VERCEL) throw new KycError("Document storage isn't set up yet — connect a Blob store to this project");
+  await mkdir(KYC_STORAGE_DIR, { recursive: true });
   await writeFile(path.join(KYC_STORAGE_DIR, key), bytes);
   return key;
 }
@@ -47,8 +58,13 @@ export async function readKycFile(key: string) {
   // Keys are generated server-side, but never let a stored value escape the
   // storage directory regardless.
   if (!/^[0-9a-f-]{36}\.(jpg|png|pdf)$/.test(key)) throw new KycError("Invalid file reference");
-  const bytes = await readFile(path.join(KYC_STORAGE_DIR, key));
   const type = FILE_SIGNATURES.find((sig) => key.endsWith(`.${sig.ext}`))!;
+  if (useBlob()) {
+    const result = await get(blobPath(key), { access: "private", useCache: false });
+    if (!result || result.statusCode !== 200) throw new KycError("Document not found");
+    return { bytes: Buffer.from(await new Response(result.stream).arrayBuffer()), contentType: type.contentType };
+  }
+  const bytes = await readFile(path.join(KYC_STORAGE_DIR, key));
   return { bytes, contentType: type.contentType };
 }
 

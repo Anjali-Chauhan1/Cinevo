@@ -29,6 +29,30 @@ const ID_TYPE_LABEL: Record<string, string> = {
   [KycIdType.NATIONAL_ID]: "National ID card",
 };
 
+// Hosting caps a request at ~4.5 MB, and the ID and selfie go up together.
+const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
+const SHRINK_ABOVE_BYTES = 1024 * 1024;
+const MAX_PHOTO_EDGE = 1600;
+
+/** Re-encodes a large photo as a JPEG at most 1600px on its longest edge —
+ * still sharp enough to read an ID, a fraction of a phone photo's size. */
+async function shrinkPhoto(file: File): Promise<File> {
+  if (!file.type.startsWith("image/") || file.size <= SHRINK_ABOVE_BYTES) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_PHOTO_EDGE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return file; // The server still checks size and type.
+  }
+}
+
 const countryName = (code: string) => KYC.COUNTRIES.find((c) => c.code === code)?.name ?? code;
 
 // useSearchParams needs a Suspense boundary for the production build.
@@ -66,12 +90,17 @@ function VerifyIdentity() {
     setError(null);
     setBusy(true);
     try {
+      const body = new FormData(e.currentTarget);
+      for (const field of ["document", "selfie"]) {
+        const file = body.get(field);
+        if (file instanceof File) body.set(field, await shrinkPhoto(file));
+      }
+      const total = ["document", "selfie"].reduce((sum, f) => sum + ((body.get(f) as File | null)?.size ?? 0), 0);
+      if (total > MAX_REQUEST_BYTES) {
+        throw new Error("Your files are too large together. Use photos or a PDF under 4 MB in total.");
+      }
       // Plain fetch, not the JSON api helper: this is a multipart upload.
-      const res = await fetch("/api/account/kyc", {
-        method: "POST",
-        body: new FormData(e.currentTarget),
-        credentials: "include",
-      });
+      const res = await fetch("/api/account/kyc", { method: "POST", body, credentials: "include" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Submission failed");
       await Promise.all([load(), refresh()]);
