@@ -9,7 +9,7 @@ export default async function TrendingPage({ searchParams }: { searchParams: { q
   const q = typeof searchParams.q === "string" ? searchParams.q.trim().slice(0, 200) : "";
   const filter = filters.some(f => f.id === searchParams.filter) ? searchParams.filter! : "all";
   const sort = searchParams.sort === "newest" ? "newest" : "trending";
-  const raw = await prisma.episode.findMany({ where: { status: { in: ["PUBLIC", "EARLY_ACCESS", "PREMIERING", "SCHEDULED"] }, ...(q ? { OR: [{ title: { contains: q } }, { creator: { channelName: { contains: q } } }] } : {}) }, include: { creator: true, popularity: true }, orderBy: { createdAt: "desc" } });
+  const raw = await prisma.episode.findMany({ where: { status: { in: ["PUBLIC", "EARLY_ACCESS", "PREMIERING", "SCHEDULED"] }, ...(q ? { OR: [{ title: { contains: q, mode: "insensitive" } }, { creator: { channelName: { contains: q, mode: "insensitive" } } }] } : {}) }, include: { creator: true, popularity: true }, orderBy: { createdAt: "desc" } });
   const synced = await Promise.all(raw.map(syncEpisodeStatus));
   const episodes = synced.filter(e => filter === "free" ? !e.isPaid && e.status === "PUBLIC" : filter === "premieres" ? ["PREMIERING", "SCHEDULED"].includes(e.status) : filter === "short" ? e.durationSeconds < 1200 : filter === "early" ? e.status === "EARLY_ACCESS" : true);
   if (sort === "trending") episodes.sort((a, b) => (b.popularity?.score ?? 0) - (a.popularity?.score ?? 0));

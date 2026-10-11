@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "concurrently -n next,realtime -c blue,magenta \"next dev -p 3001\" \"tsx watch --env-file=.env realtime-server.ts\"",
-    "build": "next build",
+    "build": "prisma generate && prisma migrate deploy && next build",
     "start": "concurrently -n next,realtime -c blue,magenta \"next start -p 3001\" \"tsx --env-file=.env realtime-server.ts\"",
     "lint": "next lint",
     "postinstall": "prisma generate",

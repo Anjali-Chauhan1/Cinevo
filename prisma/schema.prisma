@@ -1,9 +1,8 @@
 // Cinevo data model.
 //
-// SQLite is used for zero-config local/demo persistence. SQLite has no native
-// enum type in Prisma, so "enum-like" fields are plain Strings — allowed
-// values are documented above each field and enforced in application code
-// (see lib/validation.ts) rather than at the DB layer.
+// PostgreSQL (Neon in production). "Enum-like" fields are plain Strings —
+// allowed values are documented above each field and enforced in application
+// code (see lib/validation.ts) rather than at the DB layer.
 //
 // All money fields are integer paise (1 rupee = 100 paise) to avoid floating
 // point drift in financial math. Display layers convert to rupees for the UI.
@@ -13,7 +12,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
