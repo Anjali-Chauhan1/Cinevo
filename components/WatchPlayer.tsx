@@ -50,6 +50,9 @@ export function WatchPlayer({
   const onchain = useOnchain();
   const voucherRef = useRef<VoucherParams | null>(null);
   const lastBilledRef = useRef(0);
+  // Set while a payment that's due couldn't be confirmed: playback stays
+  // paused until a later tick gets it through.
+  const paymentBlockedRef = useRef(false);
 
   const stopSession = useCallback(async (token: string) => {
     try {
@@ -131,13 +134,14 @@ export function WatchPlayer({
         amount = Math.max(owed, lastBilledRef.current);
       }
       const played = Math.round(playedRef.current);
+      const needsPayment = amount > lastBilledRef.current;
 
       try {
         // Onchain: the wallet silently signs the new total — that signature is
         // what lets the vault charge it when the session settles.
         let signature: Hex | undefined;
         const v = voucherRef.current;
-        if (v && amount > lastBilledRef.current) {
+        if (v && needsPayment) {
           signature = await onchain.signVoucher(v.vault, {
             viewer: v.viewer,
             episodeId: v.episodeId,
@@ -160,9 +164,23 @@ export function WatchPlayer({
         if (current.capRupeesPaiseSnapshot > 0 && updated.cumulativeAmountPaise >= current.capRupeesPaiseSnapshot) {
           setCapReached(true);
         }
+        if (paymentBlockedRef.current) {
+          paymentBlockedRef.current = false;
+          setError(null);
+        }
       } catch (err) {
-        if (err instanceof ApiError && err.status === 400) {
-          setError(err.message);
+        // Fail closed: if a due payment can't be signed or confirmed (wallet
+        // not ready, signature or network error), stop playback instead of
+        // letting the paid part play for free. A missed plain heartbeat is
+        // harmless, so only rejections from the server stop those.
+        if (needsPayment || (err instanceof ApiError && err.status === 400)) {
+          paymentBlockedRef.current = true;
+          const reason = err instanceof Error ? err.message : "unknown error";
+          setError(
+            err instanceof ApiError && err.status === 400
+              ? err.message
+              : `Couldn't confirm your payment (${reason}). Playback is paused until it goes through.`
+          );
           video.pause();
         }
       }
@@ -209,6 +227,9 @@ export function WatchPlayer({
           autoPlay
           className="aspect-video w-full"
           onEnded={handleEnded}
+          onPlay={() => {
+            if (paymentBlockedRef.current) videoRef.current?.pause();
+          }}
           onTimeUpdate={handleTimeUpdate}
           onSeeked={() => {
             lastTimeRef.current = videoRef.current?.currentTime ?? 0;
