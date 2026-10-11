@@ -75,7 +75,7 @@ export default function BecomeCreatorPage() {
             <input
               className="input"
               required
-              pattern="[a-z0-9-]+"
+              pattern="[a-z0-9\-]+"
               value={handle}
               onChange={(e) => setHandle(e.target.value.toLowerCase())}
               placeholder="your-handle"
