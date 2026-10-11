@@ -33,7 +33,9 @@ export type Kind = keyof typeof DIRS;
 // Vercel has no writable disk and caps request bodies at ~4.5 MB, so when a
 // Blob store is connected the browser uploads straight into it (see
 // /api/uploads/blob) as PRIVATE blobs, and the routes below stream them back.
-export const blobStorageEnabled = () => Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+// A store is either reached with a read-write token, or (newer stores) with
+// its id plus the deployment's OIDC token, which the Blob SDK picks up itself.
+export const blobStorageEnabled = () => Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
 export const blobPathFor = (kind: Kind, name: string) => `${kind}s/${name}`;
 
 interface FileType {

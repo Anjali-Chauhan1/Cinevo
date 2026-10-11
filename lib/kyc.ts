@@ -18,7 +18,7 @@ const KYC_STORAGE_DIR = path.join(process.cwd(), "storage", "kyc");
 
 // Vercel has no writable disk, so when a Blob store is connected the files go
 // there instead — as PRIVATE blobs, readable only with the store's token.
-const blobStorageEnabled = () => Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+const blobStorageEnabled = () => Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
 const blobPath = (key: string) => `kyc/${key}`;
 
 const FILE_SIGNATURES: Array<{ ext: string; contentType: string; magic: number[] }> = [

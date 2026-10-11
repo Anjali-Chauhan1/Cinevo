@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { upload } from "@vercel/blob/client";
+import { upload, uploadPresigned } from "@vercel/blob/client";
 
 /** Reads a video file's length in the browser, before it's uploaded. */
 function readDuration(file: File): Promise<number> {
@@ -54,14 +54,15 @@ const EXTENSIONS: Record<string, string> = {
   "image/webp": "webp",
 };
 
-let blobEnabled: Promise<boolean> | null = null;
-/** Whether the server has a Blob store (deployed) or writes to disk (local). */
-function isBlobEnabled() {
-  blobEnabled ??= fetch("/api/uploads/blob")
+type BlobMode = "token" | "presigned" | null;
+let blobMode: Promise<BlobMode> | null = null;
+/** How the server's Blob store takes uploads, or null when it writes to disk (local). */
+function getBlobMode() {
+  blobMode ??= fetch("/api/uploads/blob")
     .then((r) => r.json())
-    .then((d: { enabled?: boolean }) => Boolean(d.enabled))
-    .catch(() => false);
-  return blobEnabled;
+    .then((d: { mode?: BlobMode }) => d.mode ?? null)
+    .catch(() => null);
+  return blobMode;
 }
 
 /**
@@ -70,7 +71,8 @@ function isBlobEnabled() {
  * through the server at ~4.5 MB); otherwise it streams to the disk route.
  */
 async function uploadMedia(kind: "video" | "thumbnail", file: File, onProgress: (pct: number) => void): Promise<string> {
-  if (!(await isBlobEnabled())) {
+  const mode = await getBlobMode();
+  if (!mode) {
     if (kind === "video") {
       const { videoKey } = await uploadWithProgress("/api/uploads/video", file, onProgress);
       return videoKey.slice("upload:".length);
@@ -82,14 +84,15 @@ async function uploadMedia(kind: "video" | "thumbnail", file: File, onProgress: 
   if (!ext) throw new Error(kind === "video" ? "Upload an MP4, MOV or WebM video" : "Upload a JPG, PNG or WebP image");
   const name = `${crypto.randomUUID()}.${ext}`;
   try {
-    await upload(`${kind}s/${name}`, file, {
-      access: "private",
+    const options = {
+      access: "private" as const,
       handleUploadUrl: "/api/uploads/blob",
       contentType: file.type,
       // Large videos go up in parts, which is faster and survives hiccups.
       multipart: file.size > 50 * 1024 * 1024,
-      onUploadProgress: ({ percentage }) => onProgress(Math.round(percentage)),
-    });
+      onUploadProgress: ({ percentage }: { percentage: number }) => onProgress(Math.round(percentage)),
+    };
+    await (mode === "presigned" ? uploadPresigned : upload)(`${kind}s/${name}`, file, options);
   } catch (err) {
     throw new Error(err instanceof Error ? `Upload failed: ${err.message}` : "Upload failed");
   }
