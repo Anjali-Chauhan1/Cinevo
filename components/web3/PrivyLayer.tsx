@@ -90,8 +90,16 @@ function PrivyBridge({ children }: { children: ReactNode }) {
   const signVoucher = useCallback(
     async (vault: Address, message: VoucherMessage) => {
       if (!walletAddress) throw new Error("Your wallet isn't ready yet");
+      // Privy JSON-serialises the payload, which can't hold BigInt. EIP-712
+      // encodes a uint256 given as a decimal string identically, so the
+      // signature still verifies against the bigint message on the server.
+      const jsonSafeMessage = {
+        ...message,
+        cumulativeAmount: message.cumulativeAmount.toString(),
+        expiry: message.expiry.toString(),
+      };
       const { signature } = await signTypedData(
-        { domain: voucherDomain(vault), types: VOUCHER_TYPES, primaryType: "Voucher", message } as never,
+        { domain: voucherDomain(vault), types: VOUCHER_TYPES, primaryType: "Voucher", message: jsonSafeMessage } as never,
         { address: walletAddress, uiOptions: { showWalletUIs: false } }
       );
       return signature as Hex;
