@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { keccak256, toBytes, zeroHash, type Address } from "viem";
 import { api, ApiError } from "@/lib/client-api";
+import { useAuth } from "@/components/AuthProvider";
 import { useOnchain } from "@/components/web3/Onchain";
 import { getAddresses, paiseToUnits, toChainId } from "@/lib/chain/config";
 import { tipsAbi } from "@/lib/chain/abis";
@@ -25,6 +26,7 @@ export function TipButton({
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const chain = useOnchain();
+  const { user } = useAuth();
 
   /** Onchain mode: the fan's wallet sends the tip, then the server confirms it. */
   async function sendOnchain() {
@@ -65,6 +67,9 @@ export function TipButton({
       setBusy(false);
     }
   }
+
+  // Creators can't tip their own channel (the contract reverts with SelfTip).
+  if (user?.creator?.id === creatorId) return null;
 
   if (!open) {
     return (
