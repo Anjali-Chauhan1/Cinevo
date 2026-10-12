@@ -19,6 +19,11 @@ export const PATCH = withApiErrors(async (req: NextRequest) => {
       socialLinks: body.socialLinks ? JSON.stringify(body.socialLinks) : undefined,
       subPriceRupeesPaise:
         body.subPriceRupees !== undefined ? rupeesToPaiseInt(body.subPriceRupees) : undefined,
+      subEarlyAccess: body.subEarlyAccess,
+      subOnlyEmotes: body.subOnlyEmotes,
+      // Empty string clears the field.
+      merchUrl: body.merchUrl === undefined ? undefined : body.merchUrl || null,
+      subMerchPerk: body.subMerchPerk === undefined ? undefined : body.subMerchPerk || null,
     },
   });
 

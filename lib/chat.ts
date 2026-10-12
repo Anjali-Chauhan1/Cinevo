@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { CHAT, ChatMessageType, ChatActionType } from "@/lib/constants";
 import { isActiveSubscriber } from "@/lib/ledger/subscriptions";
+import { BASIC_EMOTES, renderEmotes } from "@/lib/emotes";
 
 export class ChatError extends Error {
   constructor(message: string) {
@@ -86,11 +87,22 @@ export async function postMessage(userId: string, episodeId: string, text: strin
 
   const badges = await computeBadges(userId, episode.creatorId);
 
+  // Emotes: the basic set for everyone; the channel's own emotes for its
+  // subscribers, moderators and the creator (or everyone, if the creator
+  // turned "subscriber-only emotes" off).
+  const creator = await prisma.creator.findUniqueOrThrow({
+    where: { id: episode.creatorId },
+    select: { subOnlyEmotes: true, emotes: { select: { code: true, glyph: true } } },
+  });
+  const mayUseChannelEmotes =
+    !creator.subOnlyEmotes || badges.subscriberMonths > 0 || (await isModerator(userId, episode.creatorId));
+  const rendered = renderEmotes(trimmed, mayUseChannelEmotes ? [...BASIC_EMOTES, ...creator.emotes] : BASIC_EMOTES);
+
   return prisma.chatMessage.create({
     data: {
       episodeId,
       userId,
-      text: trimmed,
+      text: rendered,
       type: ChatMessageType.MESSAGE,
       badges: JSON.stringify(badges),
     },

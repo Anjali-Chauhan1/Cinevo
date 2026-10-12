@@ -42,7 +42,17 @@ export const GET = withApiErrors(async (_req: Request, { params }: { params: { h
 
   return ok(
     toJSONSafe({
-      creator: { ...creator, user: undefined, episodes: undefined, emotes: undefined, campaigns: undefined },
+      // The subscriber merch perk (e.g. a discount code) is only sent to the
+      // creator and their active subscribers.
+      creator: {
+        ...creator,
+        user: undefined,
+        episodes: undefined,
+        emotes: undefined,
+        campaigns: undefined,
+        subMerchPerk: isSubscribed || isOwner ? creator.subMerchPerk : null,
+        hasSubMerchPerk: !!creator.subMerchPerk,
+      },
       creatorWallet: creator.user.walletAddress,
       episodes: creator.episodes,
       emotes: creator.emotes,

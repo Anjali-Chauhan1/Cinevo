@@ -58,6 +58,7 @@ interface CampaignData {
     isOwner?: boolean;
     myBackings?: Array<{ type: string; amountPaise: number; status: string }>;
     myUnits?: number;
+    claimablePaise?: number | null;
     producerUnitsAvailableToViewer?: boolean;
     kycStatus?: string;
     region?: string;
@@ -237,7 +238,19 @@ export default function CampaignPage({ params }: { params: { id: string } }) {
         {(viewerState.myUnits ?? 0) > 0 && (
           <div className="card mt-4 p-4">
             <p className="text-sm">You hold {viewerState.myUnits} Producer Units in this film.</p>
-            <button className="btn-secondary mt-2" onClick={claimRevenue} disabled={busy}>Claim revenue</button>
+            <p className="mt-1 text-xs text-[var(--text-dim)]">
+              {viewerState.claimablePaise == null
+                ? "Couldn't check your claimable revenue right now."
+                : viewerState.claimablePaise > 0
+                  ? `${paise(viewerState.claimablePaise)} of revenue is ready to claim.`
+                  : "No new revenue to claim yet — it builds up as people pay to watch the film."}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <button className="btn-secondary" onClick={claimRevenue} disabled={busy || !viewerState.claimablePaise}>
+                {viewerState.claimablePaise ? `Claim ${paise(viewerState.claimablePaise)}` : "Claim revenue"}
+              </button>
+              <Link href="/profile#investments" className="text-xs text-[var(--accent)] hover:underline">All your investments →</Link>
+            </div>
           </div>
         )}
 

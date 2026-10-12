@@ -27,6 +27,7 @@ interface PendingKyc {
   idNumberLast4: string;
   createdAt: string;
   priorRejections: number;
+  sameIdOtherAccounts: number;
   user: { email: string; displayName: string; region: string };
 }
 interface PendingMilestone {
@@ -249,6 +250,11 @@ function KycReviewCard({ submission: k, onDone }: { submission: PendingKyc; onDo
         <div><dt className="text-[var(--text-dim)]">ID</dt><dd>{ID_TYPE_LABEL[k.idType] ?? k.idType}</dd></div>
         <div><dt className="text-[var(--text-dim)]">ID ends</dt><dd>…{k.idNumberLast4}</dd></div>
       </dl>
+      {k.sameIdOtherAccounts > 0 && (
+        <p className="mt-2 text-xs text-red-400">
+          This ID was also submitted from {k.sameIdOtherAccounts} other account{k.sameIdOtherAccounts === 1 ? "" : "s"}. Each person may verify only once.
+        </p>
+      )}
       {k.priorRejections > 0 && (
         <p className="mt-2 text-xs text-yellow-400">Rejected {k.priorRejections} time{k.priorRejections === 1 ? "" : "s"} before.</p>
       )}

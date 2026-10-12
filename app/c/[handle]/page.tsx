@@ -22,6 +22,12 @@ interface ChannelData {
     verificationStatus: string;
     subPriceRupeesPaise: number;
     createdAt: string;
+    subEarlyAccess: boolean;
+    subOnlyEmotes: boolean;
+    merchUrl: string | null;
+    // Only filled in for subscribers and the creator.
+    subMerchPerk: string | null;
+    hasSubMerchPerk: boolean;
   };
   episodes: Array<Record<string, unknown> & { id: string; status: string }>;
   emotes: Array<{ id: string; code: string; glyph: string }>;
@@ -139,13 +145,40 @@ export default function ChannelPage({ params }: { params: { handle: string } }) 
         </div>
       </div>
 
-      {emotes.length > 0 && (
-        <div className="mt-4 flex gap-2 text-2xl">
-          {emotes.map((e) => (
-            <span key={e.id} title={e.code}>{e.glyph}</span>
-          ))}
+      <section className="card mt-6 p-4" aria-labelledby="sub-perks">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 id="sub-perks" className="font-medium">What subscribers get</h2>
+          {creator.merchUrl && (
+            <a href={creator.merchUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary !py-1.5 text-xs">
+              Shop merch ↗
+            </a>
+          )}
         </div>
-      )}
+        <ul className="mt-3 space-y-2 text-sm">
+          <li>🎬 Every paid episode free to watch</li>
+          {creator.subEarlyAccess && <li>⏩ Premieres with live chat, and early access before everyone else</li>}
+          {emotes.length > 0 && (
+            <li>
+              <span className="mr-1">{creator.subOnlyEmotes ? "Subscriber-only emotes for premiere chat:" : "Channel emotes for premiere chat:"}</span>
+              <span className="text-lg" aria-label={emotes.map((e) => e.code).join(", ")}>
+                {emotes.map((e) => (
+                  <span key={e.id} title={e.code} className="mr-1">{e.glyph}</span>
+                ))}
+              </span>
+            </li>
+          )}
+          {creator.hasSubMerchPerk && (
+            <li>
+              🛍️ Merch perk:{" "}
+              {creator.subMerchPerk ? (
+                <span className="font-medium text-[var(--accent)]">{creator.subMerchPerk}</span>
+              ) : (
+                <span className="text-[var(--text-dim)]">subscribe to unlock</span>
+              )}
+            </li>
+          )}
+        </ul>
+      </section>
 
       {campaigns.length > 0 && (
         <section className="mt-8">

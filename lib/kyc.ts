@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { createHmac, randomUUID } from "crypto";
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import { get, put } from "@vercel/blob";
@@ -93,9 +93,37 @@ export interface KycSubmissionInput {
   selfie: File;
 }
 
+/**
+ * A stable, keyed hash of the identity document, so the same ID can't verify
+ * two Cinova accounts — without ever storing the full ID number. The key is
+ * KYC_FINGERPRINT_SECRET (falls back to JWT_SECRET); keep it fixed once set,
+ * or earlier fingerprints stop matching.
+ */
+export function idFingerprint(country: string, idType: string, idNumber: string): string {
+  const secret = process.env.KYC_FINGERPRINT_SECRET || process.env.JWT_SECRET;
+  if (!secret) throw new KycError("KYC is not configured on this server");
+  const normalized = idNumber.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return createHmac("sha256", secret).update(`${country}|${idType}|${normalized}`).digest("hex");
+}
+
+const ID_ALREADY_USED =
+  "This ID has already been used to verify a Cinova account. Each person can verify only once — sign in to that account instead.";
+
+/** Another account's submission (pending or approved) already used this ID. */
+async function idUsedElsewhere(fingerprint: string, userId: string) {
+  return prisma.kycSubmission.findFirst({
+    where: {
+      idFingerprint: fingerprint,
+      userId: { not: userId },
+      status: { in: [KycSubmissionStatus.PENDING, KycSubmissionStatus.APPROVED] },
+    },
+    select: { id: true },
+  });
+}
+
 export async function submitKyc(userId: string, input: KycSubmissionInput) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
-  if (user.kycStatus === KycStatus.VERIFIED) throw new KycError("Your identity is already verified");
+  if (user.kycStatus === KycStatus.VERIFIED) throw new KycError("Your identity is already verified — KYC is only done once");
   if (user.kycStatus === KycStatus.PENDING) throw new KycError("Your verification is already under review");
 
   const dob = new Date(`${input.dateOfBirth}T00:00:00Z`);
@@ -104,6 +132,8 @@ export async function submitKyc(userId: string, input: KycSubmissionInput) {
 
   const idNumber = input.idNumber.replace(/\s+/g, "");
   if (idNumber.length < 4) throw new KycError("Enter your full ID number");
+  const fingerprint = idFingerprint(input.country, input.idType, idNumber);
+  if (await idUsedElsewhere(fingerprint, userId)) throw new KycError(ID_ALREADY_USED);
 
   // Files are written before the DB row; a failed insert only leaves an
   // orphaned file in private storage, never a submission without documents.
@@ -111,7 +141,14 @@ export async function submitKyc(userId: string, input: KycSubmissionInput) {
   const selfieKey = await storeKycFile(input.selfie, "Selfie", false);
 
   return prisma.$transaction(async (tx) => {
-    const submission = await tx.kycSubmission.create({
+    // Claim the account's one open slot atomically: of two simultaneous
+    // submissions, only one can move the account to PENDING.
+    const claimed = await tx.user.updateMany({
+      where: { id: userId, kycStatus: { in: [KycStatus.NONE, KycStatus.REJECTED] } },
+      data: { kycStatus: KycStatus.PENDING },
+    });
+    if (claimed.count === 0) throw new KycError("Your verification is already under review");
+    return tx.kycSubmission.create({
       data: {
         userId,
         legalName: input.legalName.trim(),
@@ -119,12 +156,11 @@ export async function submitKyc(userId: string, input: KycSubmissionInput) {
         country: input.country,
         idType: input.idType,
         idNumberLast4: idNumber.slice(-4),
+        idFingerprint: fingerprint,
         documentKey,
         selfieKey,
       },
     });
-    await tx.user.update({ where: { id: userId }, data: { kycStatus: KycStatus.PENDING } });
-    return submission;
   });
 }
 
@@ -140,6 +176,21 @@ async function latestPendingSubmission(userId: string) {
 export async function approveKyc(adminId: string, userId: string) {
   const submission = await latestPendingSubmission(userId);
   return prisma.$transaction(async (tx) => {
+    // Re-check at approval: two accounts may have submitted the same ID at
+    // the same moment. One person, one verified account.
+    if (submission.idFingerprint) {
+      const verifiedElsewhere = await tx.kycSubmission.findFirst({
+        where: {
+          idFingerprint: submission.idFingerprint,
+          userId: { not: userId },
+          status: KycSubmissionStatus.APPROVED,
+        },
+        select: { id: true },
+      });
+      if (verifiedElsewhere) {
+        throw new KycError("Another account is already verified with this ID — reject this submission instead");
+      }
+    }
     await tx.kycSubmission.update({
       where: { id: submission.id },
       data: { status: KycSubmissionStatus.APPROVED, reviewedBy: adminId, reviewedAt: new Date() },

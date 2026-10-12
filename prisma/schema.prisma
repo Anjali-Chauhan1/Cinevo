@@ -83,6 +83,9 @@ model KycSubmission {
   idType          String
   // Only the last 4 characters of the ID number are ever stored.
   idNumberLast4   String
+  // Keyed hash of country + ID type + full ID number (see lib/kyc.ts). Lets
+  // us refuse the same ID verifying a second account without storing it.
+  idFingerprint   String?
   documentKey     String
   selfieKey       String
   // "PENDING" | "APPROVED" | "REJECTED"
@@ -94,6 +97,7 @@ model KycSubmission {
 
   @@index([userId])
   @@index([status])
+  @@index([idFingerprint])
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +162,15 @@ model Creator {
   verificationNote  String?
   verificationDocUrl String?
   subPriceRupeesPaise Int    @default(4900) // e.g. ₹49/month, stored as paise
+  // Subscriber perks the creator chooses (Creator studio → Settings).
+  // Premieres + early-access windows open to subscribers (else backers only).
+  subEarlyAccess    Boolean  @default(true)
+  // The channel's custom emotes can only be used in chat by subscribers.
+  subOnlyEmotes     Boolean  @default(true)
+  // Public link to the creator's own store (creator-fulfilled merch).
+  merchUrl          String?
+  // Shown ONLY to active subscribers, e.g. "10% off with code SUBS10".
+  subMerchPerk      String?
   createdAt         DateTime @default(now())
   // When the creator was registered in CinovaRegistry (onchain mode).
   chainRegisteredAt DateTime?

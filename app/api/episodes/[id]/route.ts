@@ -9,6 +9,7 @@ import { isModerator } from "@/lib/chat";
 import { BackingStatus, BackingType, EpisodeStatus, PAY_PER_MINUTE, VerificationStatus } from "@/lib/constants";
 import { episodeUpdateSchema, rupeesToPaiseInt } from "@/lib/validation";
 import { assertValidVideoKey } from "@/lib/media";
+import { BASIC_EMOTES } from "@/lib/emotes";
 import { isOnchain } from "@/lib/chain/config";
 import { syncEpisodeOnchain } from "@/lib/chain/operator";
 
@@ -16,7 +17,9 @@ export const GET = withApiErrors(async (_req: NextRequest, { params }: { params:
   const { id } = params;
   let episode = await prisma.episode.findUnique({
     where: { id },
-    include: { creator: { include: { user: { select: { walletAddress: true } } } } },
+    include: {
+      creator: { include: { user: { select: { walletAddress: true } }, emotes: { select: { code: true, glyph: true } } } },
+    },
   });
   if (!episode) return ok({ error: "Not found" }, 404);
   episode = { ...(await syncEpisodeStatus(episode)), creator: episode.creator };
@@ -88,7 +91,8 @@ export const GET = withApiErrors(async (_req: NextRequest, { params }: { params:
 
   return ok(
     toJSONSafe({
-      episode,
+      // Never send the subscriber-only merch perk (or the emote list twice) here.
+      episode: { ...episode, creator: { ...episode.creator, subMerchPerk: undefined, emotes: undefined } },
       popularity,
       reviews,
       hypeLevels,
@@ -96,6 +100,11 @@ export const GET = withApiErrors(async (_req: NextRequest, { params }: { params:
       backerCredits,
       slowModeSeconds: premiere?.slowModeSeconds ?? 0,
       creatorWallet: episode.creator.user.walletAddress,
+      emotes: {
+        basic: BASIC_EMOTES,
+        channel: episode.creator.emotes,
+        subscribersOnly: episode.creator.subOnlyEmotes,
+      },
       viewerState,
     })
   );

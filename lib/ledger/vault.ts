@@ -52,14 +52,19 @@ async function resolveAccess(
 
   if (isDraftOrScheduled) return { allowed: false, freeReason: FreeReason.NONE };
 
-  // Subscribers to this creator always watch free, at any release stage.
+  // Subscribers watch this creator's films free. During the premiere and
+  // early-access windows that's only if the creator offers early access as a
+  // subscriber perk; otherwise subscribers wait for the public release.
   const sub = await tx.subscription.findUnique({
     where: { fanId_creatorId: { fanId: viewerId, creatorId: episode.creatorId } },
   });
-  if (sub?.active) return { allowed: true, freeReason: FreeReason.SUBSCRIBER };
+  if (sub?.active) {
+    const creator = await tx.creator.findUniqueOrThrow({ where: { id: episode.creatorId }, select: { subEarlyAccess: true } });
+    if (!isGatedStage || creator.subEarlyAccess) return { allowed: true, freeReason: FreeReason.SUBSCRIBER };
+  }
 
   if (isGatedStage) {
-    // Premiere / early access: only subscribers (checked above) or backer
+    // Premiere / early access: subscribers (when offered, above) or backer
     // pass holders for one of this creator's campaigns may watch at all.
     const pass = await tx.backerPass.findFirst({
       where: { userId: viewerId, revoked: false, campaign: { creatorId: episode.creatorId } },

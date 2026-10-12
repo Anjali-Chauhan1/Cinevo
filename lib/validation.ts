@@ -32,6 +32,11 @@ export const creatorSettingsSchema = z.object({
   bannerUrl: z.string().url().optional().or(z.literal("")),
   subPriceRupees: z.number().min(0).max(999).optional(),
   socialLinks: z.array(z.string()).max(5).optional(),
+  // Subscriber perks
+  subEarlyAccess: z.boolean().optional(),
+  subOnlyEmotes: z.boolean().optional(),
+  merchUrl: z.string().trim().url("Enter a full store link, starting with https://").max(300).optional().or(z.literal("")),
+  subMerchPerk: z.string().trim().max(200, "Keep the subscriber perk under 200 characters").optional(),
 });
 
 export const episodeCreateSchema = z

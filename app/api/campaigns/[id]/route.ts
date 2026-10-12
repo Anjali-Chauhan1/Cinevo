@@ -4,6 +4,7 @@ import { ok, withApiErrors } from "@/lib/api";
 import { toJSONSafe } from "@/lib/serialize";
 import { PRODUCER_UNITS, KycStatus, BackingStatus } from "@/lib/constants";
 import { CHAIN_TIER_ORDER } from "@/lib/chain/operator";
+import { claimableRevenuePaise } from "@/lib/investments";
 import { isOnchain } from "@/lib/chain/config";
 
 export const GET = withApiErrors(async (_req: Request, { params }: { params: { id: string } }) => {
@@ -40,6 +41,8 @@ export const GET = withApiErrors(async (_req: Request, { params }: { params: { i
       isOwner: viewer.id === campaign.creator.userId,
       myBackings,
       myUnits: myHolding?.units ?? 0,
+      // What "Claim revenue" would pay right now (null if the chain read failed).
+      claimablePaise: myHolding ? await claimableRevenuePaise(viewer.id, id).catch(() => null) : 0,
       producerUnitsAvailableToViewer,
       kycStatus: viewer.kycStatus,
       region: viewer.region,

@@ -33,9 +33,12 @@ export async function notifyMany(userIds: string[], input: (userId: string) => N
 
 /** Everyone who should hear about a creator's premiere: active subscribers
  * plus holders of an unrevoked backer pass for any of the creator's films. */
-export async function creatorSupporterIds(creatorId: string): Promise<string[]> {
+export async function creatorSupporterIds(creatorId: string, opts: { includeSubscribers?: boolean } = {}): Promise<string[]> {
+  const includeSubscribers = opts.includeSubscribers ?? true;
   const [subs, passes] = await Promise.all([
-    prisma.subscription.findMany({ where: { creatorId, active: true }, select: { fanId: true } }),
+    includeSubscribers
+      ? prisma.subscription.findMany({ where: { creatorId, active: true }, select: { fanId: true } })
+      : Promise.resolve([] as { fanId: string }[]),
     prisma.backerPass.findMany({ where: { revoked: false, campaign: { creatorId } }, select: { userId: true } }),
   ]);
   return [...new Set([...subs.map((s) => s.fanId), ...passes.map((p) => p.userId)])];
@@ -73,7 +76,8 @@ export async function sendPremiereReminders() {
     // The smallest window we're already inside, e.g. 7 min left -> the 10 min reminder.
     const window = [...NOTIFICATIONS.PREMIERE_REMINDER_MINUTES].sort((a, b) => a - b).find((m) => minutesLeft <= m);
     if (!window) continue;
-    const recipients = await creatorSupporterIds(episode.creatorId);
+    // Subscribers only hear about premieres they can actually watch.
+    const recipients = await creatorSupporterIds(episode.creatorId, { includeSubscribers: episode.creator.subEarlyAccess });
     for (const userId of recipients) {
       // Say the real time left: a premiere scheduled 30 minutes out gets its
       // first reminder now (the 1-hour window), and it should say 30 minutes.

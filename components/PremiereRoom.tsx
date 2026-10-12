@@ -34,6 +34,12 @@ interface HypeProgress {
 }
 
 const REACTIONS = ["😂", "😮", "🔥", "😢", "👏"];
+
+interface EmoteSet {
+  basic: { code: string; glyph: string }[];
+  channel: { code: string; glyph: string }[];
+  subscribersOnly: boolean;
+}
 const SLOW_MODE_OPTIONS = [0, 5, 15, 30, 60];
 const TIMEOUT_MINUTES = 5;
 
@@ -68,6 +74,10 @@ export function PremiereRoom({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [viewerCount, setViewerCount] = useState(0);
   const [input, setInput] = useState("");
+  const [emotes, setEmotes] = useState<EmoteSet | null>(null);
+  const [canUseChannelEmotes, setCanUseChannelEmotes] = useState(false);
+  const [emoteMenuOpen, setEmoteMenuOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [chatError, setChatError] = useState<string | null>(null);
   const [floatingReactions, setFloatingReactions] = useState<{ id: number; emoji: string; drift: number }[]>([]);
   const [hypeLevels, setHypeLevels] = useState<HypeLevel[]>([]);
@@ -78,11 +88,20 @@ export function PremiereRoom({
   useEffect(() => {
     api.get<{ messages: ChatMessage[] }>(`/api/episodes/${episodeId}/chat`).then((d) => setMessages(d.messages));
     api
-      .get<{ hypeLevels: HypeLevel[]; hypeProgress: HypeProgress | null; slowModeSeconds?: number }>(`/api/episodes/${episodeId}`)
+      .get<{
+        hypeLevels: HypeLevel[];
+        hypeProgress: HypeProgress | null;
+        slowModeSeconds?: number;
+        emotes?: EmoteSet;
+        viewerState?: { isSubscribed?: boolean; isModerator?: boolean };
+      }>(`/api/episodes/${episodeId}`)
       .then((d) => {
         setHypeLevels(d.hypeLevels ?? []);
         setHypeProgress(d.hypeProgress ?? null);
         setSlowMode(d.slowModeSeconds ?? 0);
+        setEmotes(d.emotes ?? null);
+        // Mirrors the server rule; the server still decides when the message is saved.
+        setCanUseChannelEmotes(!d.emotes?.subscribersOnly || !!d.viewerState?.isSubscribed || !!d.viewerState?.isModerator);
       });
   }, [episodeId]);
 
@@ -144,6 +163,12 @@ export function PremiereRoom({
     setChatError(null);
     socketRef.current.emit("chat_message", { episodeId, text: input });
     setInput("");
+  }
+
+  function insertEmote(code: string) {
+    setInput((prev) => `${prev}${prev && !prev.endsWith(" ") ? " " : ""}${code} `.slice(0, 500));
+    setEmoteMenuOpen(false);
+    inputRef.current?.focus();
   }
 
   function sendReaction(emoji: string) {
@@ -291,14 +316,69 @@ export function PremiereRoom({
         </div>
         {chatError && <p className="mb-1 text-xs text-red-400">{chatError}</p>}
         {viewerSignedIn ? (
-          <div className="flex gap-2">
+          <div className="relative flex gap-2">
+            {emotes && (
+              <button
+                type="button"
+                className="btn-secondary !px-2.5"
+                aria-label="Emotes"
+                aria-expanded={emoteMenuOpen}
+                aria-controls="emote-menu"
+                onClick={() => setEmoteMenuOpen((o) => !o)}
+              >
+                😀
+              </button>
+            )}
+            {emotes && emoteMenuOpen && (
+              <div id="emote-menu" className="absolute bottom-full left-0 z-10 mb-2 w-64 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 shadow-lg">
+                {emotes.channel.length > 0 && (
+                  <>
+                    <p className="px-1 text-[11px] text-[var(--text-dim)]">
+                      Channel emotes{emotes.subscribersOnly && !canUseChannelEmotes ? " — subscribe to use" : ""}
+                    </p>
+                    <div className="mb-2 flex flex-wrap gap-1">
+                      {emotes.channel.map((e) => (
+                        <button
+                          key={e.code}
+                          type="button"
+                          title={canUseChannelEmotes ? e.code : `${e.code} — subscribers only`}
+                          disabled={!canUseChannelEmotes}
+                          className="rounded-md px-1.5 py-0.5 text-xl hover:bg-[var(--surface-raised)] disabled:cursor-not-allowed disabled:opacity-40"
+                          onClick={() => insertEmote(e.code)}
+                        >
+                          {e.glyph}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+                <p className="px-1 text-[11px] text-[var(--text-dim)]">Everyone</p>
+                <div className="flex flex-wrap gap-1">
+                  {emotes.basic.map((e) => (
+                    <button
+                      key={e.code}
+                      type="button"
+                      title={e.code}
+                      className="rounded-md px-1.5 py-0.5 text-xl hover:bg-[var(--surface-raised)]"
+                      onClick={() => insertEmote(e.code)}
+                    >
+                      {e.glyph}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <input
+              ref={inputRef}
               className="input"
-              placeholder="Say something..."
+              placeholder="Say something... (emotes: :fire:)"
               value={input}
               maxLength={500}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") sendMessage();
+                if (e.key === "Escape") setEmoteMenuOpen(false);
+              }}
             />
             <button className="btn-primary" onClick={sendMessage}>Send</button>
           </div>
