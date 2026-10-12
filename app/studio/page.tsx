@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { api, ApiError } from "@/lib/client-api";
-import { paise, relativeTime } from "@/lib/format";
+import { money, relativeTime } from "@/lib/format";
 
 interface DropOff {
   totalViewers: number;
@@ -12,28 +12,28 @@ interface DropOff {
 }
 
 interface Earnings {
-  sources: Array<{ key: string; label: string; last30Paise: number; allTimePaise: number }>;
-  totals: { last30Paise: number; allTimePaise: number };
-  daily: Array<{ date: string; totalPaise: number }>;
+  sources: Array<{ key: string; label: string; last30Cents: number; allTimeCents: number }>;
+  totals: { last30Cents: number; allTimeCents: number };
+  daily: Array<{ date: string; totalCents: number }>;
   topSupporters: Array<{
     fanId: string;
     displayName: string;
-    totalPaise: number;
+    totalCents: number;
     tips: number;
     payPerMinute: number;
     subscriptions: number;
     backing: number;
   }>;
-  recent: Array<{ label: string; detail: string | null; amountPaise: number; createdAt: string }>;
-  stats: { activeSubscribers: number; uniqueViewers: number; balancePaise: number };
+  recent: Array<{ label: string; detail: string | null; amountCents: number; createdAt: string }>;
+  stats: { activeSubscribers: number; uniqueViewers: number; balanceCents: number };
 }
 
 interface Campaign {
   id: string;
   filmTitle: string;
   status: string;
-  goalPaise: number;
-  totalBackedPaise: number;
+  goalCents: number;
+  totalBackedCents: number;
 }
 
 type StudioEpisode = { id: string; title: string; status: string };
@@ -143,7 +143,7 @@ export default function StudioDashboardPage() {
                 {campaigns.map((c) => (
                   <Link key={c.id} href={`/back/${c.id}`} className="flex items-center justify-between gap-2 p-3 text-sm hover:bg-[var(--surface-raised)]">
                     <span className="min-w-0 flex-1 truncate">{c.filmTitle}</span>
-                    <span className="text-xs text-[var(--text-dim)]">{paise(c.totalBackedPaise)} of {paise(c.goalPaise)}</span>
+                    <span className="text-xs text-[var(--text-dim)]">{money(c.totalBackedCents)} of {money(c.goalCents)}</span>
                     <span className="badge bg-[var(--surface-raised)] text-[var(--text-dim)]">{STATUS_LABEL[c.status] ?? c.status}</span>
                   </Link>
                 ))}
@@ -187,18 +187,18 @@ export default function StudioDashboardPage() {
 
 function EarningsPanel({ earnings }: { earnings: Earnings }) {
   const { totals, sources, daily, topSupporters, recent, stats } = earnings;
-  const maxDay = Math.max(...daily.map((d) => d.totalPaise), 1);
-  const ranked = [...sources].sort((a, b) => b.allTimePaise - a.allTimePaise);
-  const maxSource = Math.max(...sources.map((s) => s.allTimePaise), 1);
-  const dayLabel = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  const maxDay = Math.max(...daily.map((d) => d.totalCents), 1);
+  const ranked = [...sources].sort((a, b) => b.allTimeCents - a.allTimeCents);
+  const maxSource = Math.max(...sources.map((s) => s.allTimeCents), 1);
+  const dayLabel = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", { day: "numeric", month: "short" });
 
   return (
     <section aria-labelledby="earnings-heading" className="space-y-4">
       <h2 id="earnings-heading" className="font-serif text-lg font-semibold">Earnings</h2>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Last 30 days" value={paise(totals.last30Paise)} />
-        <Stat label="All time" value={paise(totals.allTimePaise)} />
+        <Stat label="Last 30 days" value={money(totals.last30Cents)} />
+        <Stat label="All time" value={money(totals.allTimeCents)} />
         <Stat label="Active subscribers" value={String(stats.activeSubscribers)} />
         <Stat label="Unique viewers" value={String(stats.uniqueViewers)} />
       </div>
@@ -207,7 +207,7 @@ function EarningsPanel({ earnings }: { earnings: Earnings }) {
         <div className="card p-4">
           <p className="text-sm font-medium">Daily earnings, last 30 days</p>
           <p className="text-xs text-[var(--text-dim)]">What reached your balance after the 10% platform fee</p>
-          {totals.last30Paise === 0 ? (
+          {totals.last30Cents === 0 ? (
             <p className="mt-6 text-sm text-[var(--text-dim)]">Nothing in the last 30 days yet. Tips, subscriptions and paid views will show up here.</p>
           ) : (
             <>
@@ -216,11 +216,11 @@ function EarningsPanel({ earnings }: { earnings: Earnings }) {
                   <div key={d.date} className="group relative flex h-full flex-1 items-end">
                     <div
                       className="w-full rounded-t-[4px] bg-[var(--accent)]"
-                      style={{ height: d.totalPaise > 0 ? `${Math.max(3, (d.totalPaise / maxDay) * 100)}%` : 0 }}
-                      tabIndex={d.totalPaise > 0 ? 0 : -1}
-                      aria-label={`${dayLabel(d.date)}: ${paise(d.totalPaise)}`}
+                      style={{ height: d.totalCents > 0 ? `${Math.max(3, (d.totalCents / maxDay) * 100)}%` : 0 }}
+                      tabIndex={d.totalCents > 0 ? 0 : -1}
+                      aria-label={`${dayLabel(d.date)}: ${money(d.totalCents)}`}
                     />
-                    <span className="chart-tip">{dayLabel(d.date)} · {paise(d.totalPaise)}</span>
+                    <span className="chart-tip">{dayLabel(d.date)} · {money(d.totalCents)}</span>
                   </div>
                 ))}
               </div>
@@ -231,7 +231,7 @@ function EarningsPanel({ earnings }: { earnings: Earnings }) {
               <table className="sr-only">
                 <caption>Daily earnings, last 30 days</caption>
                 <thead><tr><th>Date</th><th>Earned</th></tr></thead>
-                <tbody>{daily.map((d) => <tr key={d.date}><td>{dayLabel(d.date)}</td><td>{paise(d.totalPaise)}</td></tr>)}</tbody>
+                <tbody>{daily.map((d) => <tr key={d.date}><td>{dayLabel(d.date)}</td><td>{money(d.totalCents)}</td></tr>)}</tbody>
               </table>
             </>
           )}
@@ -244,12 +244,12 @@ function EarningsPanel({ earnings }: { earnings: Earnings }) {
               <li key={s.key}>
                 <div className="flex justify-between text-sm">
                   <span>{s.label}</span>
-                  <span>{paise(s.allTimePaise)}</span>
+                  <span>{money(s.allTimeCents)}</span>
                 </div>
                 <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--surface-raised)]" aria-hidden>
-                  <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${(s.allTimePaise / maxSource) * 100}%` }} />
+                  <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${(s.allTimeCents / maxSource) * 100}%` }} />
                 </div>
-                <p className="mt-0.5 text-[11px] text-[var(--text-dim)]">{paise(s.last30Paise)} in the last 30 days</p>
+                <p className="mt-0.5 text-[11px] text-[var(--text-dim)]">{money(s.last30Cents)} in the last 30 days</p>
               </li>
             ))}
           </ul>
@@ -270,16 +270,16 @@ function EarningsPanel({ earnings }: { earnings: Earnings }) {
                     {s.displayName}
                     <span className="block text-[11px] text-[var(--text-dim)]">
                       {[
-                        s.tips && `tips ${paise(s.tips)}`,
-                        s.subscriptions && `subscription ${paise(s.subscriptions)}`,
-                        s.payPerMinute && `watching ${paise(s.payPerMinute)}`,
-                        s.backing && `backing ${paise(s.backing)}`,
+                        s.tips && `tips ${money(s.tips)}`,
+                        s.subscriptions && `subscription ${money(s.subscriptions)}`,
+                        s.payPerMinute && `watching ${money(s.payPerMinute)}`,
+                        s.backing && `backing ${money(s.backing)}`,
                       ]
                         .filter(Boolean)
                         .join(" · ")}
                     </span>
                   </span>
-                  <span className="font-medium">{paise(s.totalPaise)}</span>
+                  <span className="font-medium">{money(s.totalCents)}</span>
                 </li>
               ))}
             </ol>
@@ -289,7 +289,7 @@ function EarningsPanel({ earnings }: { earnings: Earnings }) {
         <div className="card p-4">
           <div className="flex items-baseline justify-between">
             <p className="text-sm font-medium">Recent payments</p>
-            <Link href="/wallet" className="text-xs text-[var(--accent)]">Balance {paise(stats.balancePaise)} →</Link>
+            <Link href="/wallet" className="text-xs text-[var(--accent)]">Balance {money(stats.balanceCents)} →</Link>
           </div>
           {recent.length === 0 ? (
             <p className="mt-2 text-sm text-[var(--text-dim)]">No payments yet.</p>
@@ -302,7 +302,7 @@ function EarningsPanel({ earnings }: { earnings: Earnings }) {
                     {r.detail && <span className="text-[var(--text-dim)]"> · {r.detail}</span>}
                     <span className="block text-[11px] text-[var(--text-dim)]">{relativeTime(r.createdAt)}</span>
                   </span>
-                  <span className="text-emerald-400">+{paise(r.amountPaise)}</span>
+                  <span className="text-emerald-400">+{money(r.amountCents)}</span>
                 </li>
               ))}
             </ul>

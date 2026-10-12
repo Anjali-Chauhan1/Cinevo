@@ -33,7 +33,7 @@ async function upsertUser(opts: {
   platformRole?: string;
   region?: string;
   kycStatus?: string;
-  grantPaise?: number;
+  grantCents?: number;
 }) {
   const passwordHash = await hashedPw();
   const user = await prisma.user.upsert({
@@ -51,21 +51,21 @@ async function upsertUser(opts: {
 
   const account = await prisma.ledgerAccount.upsert({
     where: { userId: user.id },
-    create: { userId: user.id, balancePaise: 0 },
+    create: { userId: user.id, balanceCents: 0 },
     update: {},
   });
 
-  if (opts.grantPaise && account.balancePaise === 0) {
+  if (opts.grantCents && account.balanceCents === 0) {
     await prisma.ledgerAccount.update({
       where: { id: account.id },
-      data: { balancePaise: opts.grantPaise },
+      data: { balanceCents: opts.grantCents },
     });
     await prisma.ledgerTransaction.create({
       data: {
         accountId: account.id,
         type: "GRANT",
-        amountPaise: opts.grantPaise,
-        balanceAfter: opts.grantPaise,
+        amountCents: opts.grantCents,
+        balanceAfter: opts.grantCents,
         meta: JSON.stringify({ reason: "seed demo grant" }),
       },
     });
@@ -85,14 +85,14 @@ async function main() {
 
   const priyaUser = await upsertUser({ email: "priya@cinevo.app", displayName: "Priya Sharma" });
   const rahulUser = await upsertUser({ email: "rahul@cinevo.app", displayName: "Rahul Verma" });
-  await upsertUser({ email: "viewer@cinevo.app", displayName: "Asha Nair", grantPaise: 200000 }); // ₹2,000
-  await upsertUser({ email: "fan2@cinevo.app", displayName: "Kabir Khan", grantPaise: 150000 }); // ₹1,500
+  await upsertUser({ email: "viewer@cinevo.app", displayName: "Asha Nair", grantCents: 2500 }); // $25
+  await upsertUser({ email: "fan2@cinevo.app", displayName: "Kabir Khan", grantCents: 2000 }); // $20
   await upsertUser({
     email: "investor@cinevo.app",
     displayName: "Jordan Lee",
     region: "US",
     kycStatus: KycStatus.VERIFIED,
-    grantPaise: 1000000, // ₹10,000
+    grantCents: 20000, // $200
   });
 
   const priya = await prisma.creator.upsert({
@@ -103,7 +103,7 @@ async function main() {
       channelName: "Priya Films",
       bio: "Student filmmaker from FTII. Short films about small-town India.",
       verificationStatus: "APPROVED",
-      subPriceRupeesPaise: 4900,
+      subPriceCents: 499,
     },
     update: {},
   });
@@ -116,7 +116,7 @@ async function main() {
       channelName: "Rahul Reels",
       bio: "First-time director. Currently raising for a feature-length debut.",
       verificationStatus: "APPROVED",
-      subPriceRupeesPaise: 9900,
+      subPriceCents: 999,
     },
     update: {},
   });
@@ -163,9 +163,9 @@ async function main() {
         thumbnailUrl: "/demo-thumbs/monsoon-letters-2.svg",
         durationSeconds: 780,
         isPaid: true,
-        rateRupeesPaise: 50,
+        rateCents: 5,
         previewSeconds: 120,
-        capRupeesPaise: 1500,
+        capCents: 200,
         status: EpisodeStatus.PUBLIC,
         publicAt: new Date(now - 3 * 86_400_000),
       },
@@ -185,9 +185,9 @@ async function main() {
         thumbnailUrl: "/demo-thumbs/signal-lost.svg",
         durationSeconds: 1080,
         isPaid: true,
-        rateRupeesPaise: 100,
+        rateCents: 10,
         previewSeconds: 120,
-        capRupeesPaise: 2000,
+        capCents: 300,
         status: EpisodeStatus.PREMIERING,
         premiereAt: new Date(now - 5 * 60_000),
         earlyAccessUntil: new Date(now + 7 * 86_400_000),
@@ -210,14 +210,14 @@ async function main() {
           episodeId: ep3.id,
           level: 1,
           goalType: "TIPS",
-          goalValue: 20000,
+          goalValue: 2500,
           unlockTitle: "Blooper reel after the credits",
         },
         {
           episodeId: ep3.id,
           level: 2,
           goalType: "TIPS",
-          goalValue: 50000,
+          goalValue: 5000,
           unlockTitle: "Director's commentary clip",
         },
         {
@@ -243,8 +243,8 @@ async function main() {
         thumbnailUrl: "/demo-thumbs/monsoon-letters.svg",
         durationSeconds: 840,
         isPaid: true,
-        rateRupeesPaise: 50,
-        capRupeesPaise: 1200,
+        rateCents: 5,
+        capCents: 150,
         status: EpisodeStatus.SCHEDULED,
         premiereAt: new Date(now + 3 * 86_400_000),
         earlyAccessUntil: new Date(now + 10 * 86_400_000),
@@ -261,16 +261,16 @@ async function main() {
         creatorId: rahul.id,
         filmTitle: "The Last Frequency",
         pitch: "A feature-length follow-up to Signal Lost, backed by the fans who found it first.",
-        goalPaise: 10_000_00, // ₹10,000 demo goal
+        goalCents: 500_00, // $500 demo goal
         deadline: new Date(now + 20 * 86_400_000),
         deliveryDate: new Date(now + 90 * 86_400_000),
         status: CampaignStatus.ACTIVE,
         producerUnitsEnabled: true,
         tiers: {
           create: [
-            { name: "Supporter", pricePaise: 9900, perks: JSON.stringify(["Name in credits", "Digital badge", "30 free watch minutes"]) },
-            { name: "Insider", pricePaise: 49900, perks: JSON.stringify(["Above", "48h early access", "Behind the scenes"]) },
-            { name: "Producer's Circle", pricePaise: 199900, perks: JSON.stringify(["Above", "Merch", "Vote on the ending"]) },
+            { name: "Supporter", priceCents: 100, perks: JSON.stringify(["Name in credits", "Digital badge", "30 free watch minutes"]) },
+            { name: "Insider", priceCents: 500, perks: JSON.stringify(["Above", "48h early access", "Behind the scenes"]) },
+            { name: "Producer's Circle", priceCents: 2500, perks: JSON.stringify(["Above", "Merch", "Vote on the ending"]) },
           ],
         },
         milestones: {

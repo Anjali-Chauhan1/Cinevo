@@ -2,18 +2,18 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { api, ApiError } from "@/lib/client-api";
-import { paise } from "@/lib/format";
+import { money } from "@/lib/format";
 import type { Address, Hex } from "viem";
-import { paiseToUnits } from "@/lib/chain/config";
+import { centsToUnits } from "@/lib/chain/config";
 import { useOnchain } from "@/components/web3/Onchain";
 
 interface WatchSession {
   sessionToken: string;
   freeReason: string;
-  rateRupeesPaiseSnapshot: number;
+  rateCentsSnapshot: number;
   previewSecondsSnapshot: number;
-  capRupeesPaiseSnapshot: number;
-  cumulativeAmountPaise: number;
+  capCentsSnapshot: number;
+  cumulativeAmountCents: number;
 }
 
 const VOUCHER_INTERVAL_MS = 10_000;
@@ -87,8 +87,8 @@ export function WatchPlayer({
       const { session: s, voucher } = await api.post<{ session: WatchSession; voucher?: VoucherParams }>("/api/watch/start", { episodeId });
       voucherRef.current = voucher ?? null;
       setSession(s);
-      setCapReached(s.cumulativeAmountPaise >= s.capRupeesPaiseSnapshot && s.capRupeesPaiseSnapshot > 0);
-      lastBilledRef.current = s.cumulativeAmountPaise;
+      setCapReached(s.cumulativeAmountCents >= s.capCentsSnapshot && s.capCentsSnapshot > 0);
+      lastBilledRef.current = s.cumulativeAmountCents;
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't start playback");
     } finally {
@@ -128,8 +128,8 @@ export function WatchPlayer({
       if (current.freeReason === "NONE") {
         const billableSeconds = Math.max(0, video.currentTime - current.previewSecondsSnapshot);
         const owed = Math.min(
-          current.capRupeesPaiseSnapshot,
-          Math.round((billableSeconds * current.rateRupeesPaiseSnapshot) / 60)
+          current.capCentsSnapshot,
+          Math.round((billableSeconds * current.rateCentsSnapshot) / 60)
         );
         amount = Math.max(owed, lastBilledRef.current);
       }
@@ -146,22 +146,22 @@ export function WatchPlayer({
             viewer: v.viewer,
             episodeId: v.episodeId,
             sessionId: v.sessionId,
-            cumulativeAmount: paiseToUnits(amount),
+            cumulativeAmount: centsToUnits(amount),
             expiry: BigInt(v.expiry),
           });
         }
         const { session: updated } = await api.post<{ session: WatchSession }>("/api/watch/voucher", {
           sessionToken: current.sessionToken,
-          cumulativeAmountPaise: amount,
+          cumulativeAmountCents: amount,
           playedSeconds: played,
           signature,
         });
         playedRef.current = Math.max(0, playedRef.current - played);
-        if (updated.cumulativeAmountPaise !== lastBilledRef.current) {
-          lastBilledRef.current = updated.cumulativeAmountPaise;
-          setSession((prev) => (prev ? { ...prev, cumulativeAmountPaise: updated.cumulativeAmountPaise } : prev));
+        if (updated.cumulativeAmountCents !== lastBilledRef.current) {
+          lastBilledRef.current = updated.cumulativeAmountCents;
+          setSession((prev) => (prev ? { ...prev, cumulativeAmountCents: updated.cumulativeAmountCents } : prev));
         }
-        if (current.capRupeesPaiseSnapshot > 0 && updated.cumulativeAmountPaise >= current.capRupeesPaiseSnapshot) {
+        if (current.capCentsSnapshot > 0 && updated.cumulativeAmountCents >= current.capCentsSnapshot) {
           setCapReached(true);
         }
         if (paymentBlockedRef.current) {
@@ -215,7 +215,7 @@ export function WatchPlayer({
   // Uploaded films stream through the session-checked route; legacy films
   // still point straight at their URL.
   const src = videoUrl.startsWith("upload:") ? `/api/media/video/${session.sessionToken}` : videoUrl;
-  const minutesRate = (session.rateRupeesPaiseSnapshot / 100).toFixed(2);
+  const minutesRate = (session.rateCentsSnapshot / 100).toFixed(2);
 
   return (
     <div>
@@ -241,10 +241,10 @@ export function WatchPlayer({
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
         {isBilled ? (
           <div className="flex items-center gap-3 text-[var(--text-dim)]">
-            <span>₹{minutesRate}/min</span>
-            <span className="text-[var(--text)]">{paise(session.cumulativeAmountPaise)} so far</span>
-            {session.capRupeesPaiseSnapshot > 0 && (
-              <span>cap {paise(session.capRupeesPaiseSnapshot)}</span>
+            <span>${minutesRate}/min</span>
+            <span className="text-[var(--text)]">{money(session.cumulativeAmountCents)} so far</span>
+            {session.capCentsSnapshot > 0 && (
+              <span>cap {money(session.capCentsSnapshot)}</span>
             )}
             {capReached && <span className="badge bg-emerald-500/15 text-emerald-400">Cap reached — rest is free</span>}
           </div>

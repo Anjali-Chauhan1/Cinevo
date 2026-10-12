@@ -1,10 +1,10 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { syncEpisodeStatus } from "@/lib/episodes";
 import { getCurrentUser } from "@/lib/auth";
 import { EpisodeCard } from "@/components/EpisodeCard";
 import { Icon } from "@/components/Icon";
-import { paise } from "@/lib/format";
+import { money } from "@/lib/format";
 
 export async function DiscoverHome() {
   const user = await getCurrentUser();
@@ -32,14 +32,14 @@ export async function DiscoverHome() {
       </section>
       <section className="poster-section"><div className="poster-heading"><h2>Trending now <span className="heading-spark">✦</span></h2><Link href="/trending">View all <Icon name="arrow" size={14} /></Link></div>{trending.length ? <div className="poster-grid">{trending.map(e => <EpisodeCard key={e.id} episode={e} />)}</div> : <div className="empty-state"><Icon name="film" size={30} /><p>New stories are on their way. Start a channel to share yours.</p><Link className="btn-secondary" href="/become-creator">Become a filmmaker</Link></div>}</section>
       <section className="poster-section"><div className="poster-heading"><h2>Coming soon</h2><Link href="/trending?filter=premieres">Premieres <Icon name="arrow" size={14} /></Link></div>{upcoming.length ? <div className="poster-grid">{upcoming.slice(0, 3).map(e => <EpisodeCard key={e.id} episode={e} />)}</div> : <div className="premiere-empty"><Icon name="live" size={24} /><div><h3>The next premiere is in the making.</h3><p>Explore something new while you wait.</p></div><Link href="/trending"><Icon name="arrow" size={20} /><span className="sr-only">Explore films</span></Link></div>}</section>
-      {campaign && <section className="project-callout"><div><span className="eyebrow">BE PART OF THE NEXT CHAPTER</span><h2>{campaign.filmTitle}</h2><p>{campaign.pitch ?? "Help an independent story find its way to the screen."}</p><div className="campaign-progress" role="progressbar" aria-label="Campaign funding" aria-valuenow={Math.min(100,Math.round(campaign.totalBackedPaise / Math.max(1,campaign.goalPaise)*100))} aria-valuemin={0} aria-valuemax={100}><span style={{width:`${Math.min(100,campaign.totalBackedPaise / Math.max(1,campaign.goalPaise)*100)}%`}} /></div><small>{paise(campaign.totalBackedPaise)} raised of {paise(campaign.goalPaise)}</small></div><Link className="btn-primary" href={`/back/${campaign.id}`}>Explore project<Icon name="arrow" size={15} /></Link></section>}
+      {campaign && <section className="project-callout"><div><span className="eyebrow">BE PART OF THE NEXT CHAPTER</span><h2>{campaign.filmTitle}</h2><p>{campaign.pitch ?? "Help an independent story find its way to the screen."}</p><div className="campaign-progress" role="progressbar" aria-label="Campaign funding" aria-valuenow={Math.min(100,Math.round(campaign.totalBackedCents / Math.max(1,campaign.goalCents)*100))} aria-valuemin={0} aria-valuemax={100}><span style={{width:`${Math.min(100,campaign.totalBackedCents / Math.max(1,campaign.goalCents)*100)}%`}} /></div><small>{money(campaign.totalBackedCents)} raised of {money(campaign.goalCents)}</small></div><Link className="btn-primary" href={`/back/${campaign.id}`}>Explore project<Icon name="arrow" size={15} /></Link></section>}
     </div>
     <aside className="activity-rail" aria-label="Your cinema activity">
       <section><div className="rail-heading"><h2>{history.length ? "Recently watched" : "Up next for you"}</h2><Icon name="play" size={16} /></div>
         <div className="rail-films">{(history.length ? history.map(h => h.episode) : available.slice(0, 3)).map(e => <Link href={`${e.status === "PREMIERING" ? "/premiere" : "/watch"}/${e.id}`} className="rail-film" key={e.id}><div className="rail-thumb">{e.thumbnailUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={e.thumbnailUrl} alt="" />
-        )}<span><Icon name="play" size={14} /></span></div><div><h3>{e.title}</h3><p>{e.creator.channelName}</p><small>{Math.ceil(e.durationSeconds / 60)} min · {e.status === "PREMIERING" ? "Live premiere" : e.isPaid ? `${paise(e.rateRupeesPaise)}/min` : "Free to watch"}</small></div></Link>)}</div>
+        )}<span><Icon name="play" size={14} /></span></div><div><h3>{e.title}</h3><p>{e.creator.channelName}</p><small>{Math.ceil(e.durationSeconds / 60)} min · {e.status === "PREMIERING" ? "Live premiere" : e.isPaid ? `${money(e.rateCents)}/min` : "Free to watch"}</small></div></Link>)}</div>
         {!available.length && !history.length && <p className="rail-empty">Your next watch will appear here when films are published.</p>}
       </section>
       <section><div className="rail-heading"><h2>In the creator community</h2></div><div className="rail-creators">{creators.map((c,i) => <Link href={`/c/${c.handle}`} className={`rail-creator creator-tone-${i % 3}`} key={c.id}><span className="creator-avatar">{c.channelName.charAt(0)}</span><div><h3>{c.channelName}<Icon name="check" size={12} /></h3><p>{c.bio ?? "Independent filmmaker"}</p></div></Link>)}</div>{!creators.length && <p className="rail-empty">Meet new filmmakers as the community grows.</p>}</section>

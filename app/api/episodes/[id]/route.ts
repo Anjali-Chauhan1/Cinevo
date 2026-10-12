@@ -7,7 +7,7 @@ import { syncEpisodeStatus } from "@/lib/episodes";
 import { isActiveSubscriber } from "@/lib/ledger/subscriptions";
 import { isModerator } from "@/lib/chat";
 import { BackingStatus, BackingType, EpisodeStatus, PAY_PER_MINUTE, VerificationStatus } from "@/lib/constants";
-import { episodeUpdateSchema, rupeesToPaiseInt } from "@/lib/validation";
+import { episodeUpdateSchema, dollarsToCents } from "@/lib/validation";
 import { assertValidVideoKey } from "@/lib/media";
 import { BASIC_EMOTES } from "@/lib/emotes";
 import { isOnchain } from "@/lib/chain/config";
@@ -40,7 +40,7 @@ export const GET = withApiErrors(async (_req: NextRequest, { params }: { params:
         filmTitle: true,
         backings: {
           where: { status: BackingStatus.ACTIVE, type: BackingType.PERK },
-          select: { user: { select: { displayName: true } }, tier: { select: { name: true, pricePaise: true } } },
+          select: { user: { select: { displayName: true } }, tier: { select: { name: true, priceCents: true } } },
         },
       },
     }),
@@ -49,15 +49,15 @@ export const GET = withApiErrors(async (_req: NextRequest, { params }: { params:
 
   // "Funders' names show in the credits": backers of the campaign that funded
   // this film, grouped by tier, biggest tier first.
-  const tiers = new Map<string, { tier: string; pricePaise: number; names: Set<string> }>();
+  const tiers = new Map<string, { tier: string; priceCents: number; names: Set<string> }>();
   for (const b of fundingCampaign?.backings ?? []) {
     if (!b.tier) continue;
-    const entry = tiers.get(b.tier.name) ?? { tier: b.tier.name, pricePaise: b.tier.pricePaise, names: new Set<string>() };
+    const entry = tiers.get(b.tier.name) ?? { tier: b.tier.name, priceCents: b.tier.priceCents, names: new Set<string>() };
     entry.names.add(b.user.displayName);
     tiers.set(b.tier.name, entry);
   }
   const backerCredits = [...tiers.values()]
-    .sort((a, b) => b.pricePaise - a.pricePaise)
+    .sort((a, b) => b.priceCents - a.priceCents)
     .map((t) => ({ tier: t.tier, names: [...t.names].sort() }));
 
   const viewer = await getCurrentUser();
@@ -81,7 +81,7 @@ export const GET = withApiErrors(async (_req: NextRequest, { params }: { params:
       isModerator: await isModerator(viewer.id, episode.creatorId),
       isSubscribed: subscribed,
       hasBackerPass: !!backerPass,
-      totalPaidPaise: access?.totalPaidPaise ?? 0,
+      totalPaidCents: access?.totalPaidCents ?? 0,
       capReached: access?.capReached ?? false,
       secondsWatched: access?.secondsWatched ?? 0,
       activeSessionToken: activeSession?.sessionToken ?? null,
@@ -127,13 +127,13 @@ export const PATCH = withApiErrors(async (req: NextRequest, { params }: { params
   // --- Pricing (the creator can switch pay-per-minute on or off at any time;
   // sessions already running keep the price they started with).
   const isPaid = body.isPaid ?? episode.isPaid;
-  const rateRupeesPaise = body.rateRupees !== undefined ? rupeesToPaiseInt(body.rateRupees) : episode.rateRupeesPaise;
-  const capRupeesPaise = body.capRupees !== undefined ? rupeesToPaiseInt(body.capRupees) : episode.capRupeesPaise;
+  const rateCents = body.rateDollars !== undefined ? dollarsToCents(body.rateDollars) : episode.rateCents;
+  const capCents = body.capDollars !== undefined ? dollarsToCents(body.capDollars) : episode.capCents;
   if (isPaid) {
-    if (rateRupeesPaise < PAY_PER_MINUTE.MIN_RATE_PAISE || rateRupeesPaise > PAY_PER_MINUTE.MAX_RATE_PAISE) {
-      return fail(`Rate must be between ₹${PAY_PER_MINUTE.MIN_RATE_PAISE / 100} and ₹${PAY_PER_MINUTE.MAX_RATE_PAISE / 100} per minute`);
+    if (rateCents < PAY_PER_MINUTE.MIN_RATE_CENTS || rateCents > PAY_PER_MINUTE.MAX_RATE_CENTS) {
+      return fail(`Rate must be between $${PAY_PER_MINUTE.MIN_RATE_CENTS / 100} and $${PAY_PER_MINUTE.MAX_RATE_CENTS / 100} per minute`);
     }
-    if (capRupeesPaise <= 0) return fail("Set a price cap for paid episodes");
+    if (capCents <= 0) return fail("Set a price cap for paid episodes");
   }
 
   // --- Schedule. Once an episode has left DRAFT its premiere time has been
@@ -181,8 +181,8 @@ export const PATCH = withApiErrors(async (req: NextRequest, { params }: { params
       thumbnailUrl: body.thumbnailUrl,
       castCredits: body.castCredits ? JSON.stringify(body.castCredits) : undefined,
       isPaid,
-      rateRupeesPaise: isPaid ? rateRupeesPaise : episode.rateRupeesPaise,
-      capRupeesPaise: isPaid ? capRupeesPaise : episode.capRupeesPaise,
+      rateCents: isPaid ? rateCents : episode.rateCents,
+      capCents: isPaid ? capCents : episode.capCents,
       previewSeconds: body.previewSeconds,
       videoKey: videoChanged ? body.videoKey : undefined,
       durationSeconds: videoChanged ? body.durationSeconds : undefined,

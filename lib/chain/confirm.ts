@@ -1,7 +1,7 @@
 import type { Address, Hex } from "viem";
 import { prisma } from "@/lib/db";
 import { BackingStatus, BackingType, LedgerTxType, PRODUCER_UNITS } from "@/lib/constants";
-import { getAddresses, toChainId, unitsToPaise } from "@/lib/chain/config";
+import { getAddresses, toChainId, unitsToCents } from "@/lib/chain/config";
 import { ChainError, eventsFrom, waitForUserTx } from "@/lib/chain/server";
 import { mirror } from "@/lib/chain/mirror";
 import { CHAIN_TIER_ORDER, mirrorSubscriptionCharges } from "@/lib/chain/operator";
@@ -48,19 +48,19 @@ export async function confirmTip(userId: string, txHash: Hex, opts: { creatorId:
     throw new ChainError("That transaction isn't a tip from you to this creator");
   }
 
-  const amountPaise = unitsToPaise(args.amount);
+  const amountCents = unitsToCents(args.amount);
   const tip = await prisma.tip.create({
     data: {
       fanId: userId,
       creatorId: creator.id,
       episodeId: opts.episodeId ?? null,
-      amountPaise,
+      amountCents,
       message: opts.message?.slice(0, 120) ?? null,
       txHash,
     },
   });
-  await mirror({ userId, type: LedgerTxType.TIP_OUT, amountPaise: -amountPaise, txHash, refType: "TIP", refId: tip.id });
-  await mirror({ userId: creator.userId, type: LedgerTxType.TIP_IN, amountPaise: unitsToPaise(args.toCreator), txHash, refType: "TIP", refId: tip.id });
+  await mirror({ userId, type: LedgerTxType.TIP_OUT, amountCents: -amountCents, txHash, refType: "TIP", refId: tip.id });
+  await mirror({ userId: creator.userId, type: LedgerTxType.TIP_IN, amountCents: unitsToCents(args.toCreator), txHash, refType: "TIP", refId: tip.id });
   return { tip, created: true };
 }
 
@@ -81,11 +81,11 @@ export async function confirmSubscribe(userId: string, creatorId: string, txHash
     throw new ChainError("That transaction isn't your subscription to this creator");
   }
   const now = new Date();
-  // Same per-second rate the demo ledger stores (paise per second, ×1e6).
-  const ratePerSecondPaiseScaled = Math.round((creator.subPriceRupeesPaise * 1_000_000) / (30 * 24 * 3600));
+  // Same per-second rate the demo ledger stores (cents per second, ×1e6).
+  const ratePerSecondCentsScaled = Math.round((creator.subPriceCents * 1_000_000) / (30 * 24 * 3600));
   return prisma.subscription.upsert({
     where: { fanId_creatorId: { fanId: userId, creatorId } },
-    create: { fanId: userId, creatorId, ratePerSecondPaiseScaled, active: true, startedAt: now, lastAccruedAt: now, txHash },
+    create: { fanId: userId, creatorId, ratePerSecondCentsScaled, active: true, startedAt: now, lastAccruedAt: now, txHash },
     update: { active: true, cancelledAt: null, pausedForLowBalance: false, startedAt: now, lastAccruedAt: now, txHash },
   });
 }
@@ -134,7 +134,7 @@ export async function confirmBacking(userId: string, campaignId: string, txHash:
   const found = backed ?? units;
   if (!found || !same(found.backer, backerWallet)) throw new ChainError("That transaction isn't your backing of this film");
 
-  const amountPaise = unitsToPaise(backed ? backed.amount : units!.cost);
+  const amountCents = unitsToCents(backed ? backed.amount : units!.cost);
   const tier = backed ? campaign.tiers[Number(backed.tier)] : null;
   const unitsGranted = units ? Number(units.units) : 0;
 
@@ -145,7 +145,7 @@ export async function confirmBacking(userId: string, campaignId: string, txHash:
         userId,
         tierId: tier?.id ?? null,
         type: backed ? BackingType.PERK : BackingType.PRODUCER_UNIT,
-        amountPaise,
+        amountCents,
         unitsGranted,
         riskAcknowledged: true,
         riskAcknowledgedAt: new Date(),
@@ -155,8 +155,8 @@ export async function confirmBacking(userId: string, campaignId: string, txHash:
     await tx.campaign.update({
       where: { id: campaignId },
       data: {
-        totalBackedPaise: { increment: amountPaise },
-        ...(units ? { totalUnits: { increment: unitsGranted }, unitsRaisedPaise: { increment: amountPaise } } : {}),
+        totalBackedCents: { increment: amountCents },
+        ...(units ? { totalUnits: { increment: unitsGranted }, unitsRaisedCents: { increment: amountCents } } : {}),
       },
     });
     if (tier) {
@@ -173,7 +173,7 @@ export async function confirmBacking(userId: string, campaignId: string, txHash:
     }
     return created;
   });
-  await mirror({ userId, type: LedgerTxType.BACKING_OUT, amountPaise: -amountPaise, txHash, refType: "CAMPAIGN", refId: campaignId });
+  await mirror({ userId, type: LedgerTxType.BACKING_OUT, amountCents: -amountCents, txHash, refType: "CAMPAIGN", refId: campaignId });
   return backing;
 }
 
@@ -184,7 +184,7 @@ export async function confirmRefund(userId: string, campaignId: string, txHash: 
   const args = event?.args as { backer: Address; amount: bigint } | undefined;
   if (!args || !same(args.backer, backerWallet)) throw new ChainError("That transaction isn't your refund from this film");
 
-  const amountPaise = unitsToPaise(args.amount);
+  const amountCents = unitsToCents(args.amount);
   await prisma.$transaction(async (tx) => {
     const backings = await tx.backing.findMany({ where: { campaignId, userId, status: BackingStatus.ACTIVE } });
     await tx.backing.updateMany({
@@ -194,8 +194,8 @@ export async function confirmRefund(userId: string, campaignId: string, txHash: 
     await tx.backerPass.updateMany({ where: { campaignId, userId }, data: { revoked: true } });
     await tx.producerUnitHolding.deleteMany({ where: { campaignId, userId } });
   });
-  await mirror({ userId, type: LedgerTxType.BACKING_REFUND_IN, amountPaise, txHash, refType: "CAMPAIGN", refId: campaignId });
-  return { refundedPaise: amountPaise };
+  await mirror({ userId, type: LedgerTxType.BACKING_REFUND_IN, amountCents, txHash, refType: "CAMPAIGN", refId: campaignId });
+  return { refundedCents: amountCents };
 }
 
 export async function confirmRevenueClaim(userId: string, campaignId: string, txHash: Hex) {
@@ -204,9 +204,9 @@ export async function confirmRevenueClaim(userId: string, campaignId: string, tx
   const event = eventsFrom(receipt, filmCampaignAbi, campaign.contractAddress as Address).find((e) => e.eventName === "RevenueClaimed");
   const args = event?.args as { holder: Address; amount: bigint } | undefined;
   if (!args || !same(args.holder, holderWallet)) throw new ChainError("That transaction isn't your revenue claim");
-  const claimedPaise = unitsToPaise(args.amount);
-  await mirror({ userId, type: LedgerTxType.REVENUE_CLAIM_IN, amountPaise: claimedPaise, txHash, refType: "CAMPAIGN", refId: campaignId });
-  return { claimedPaise };
+  const claimedCents = unitsToCents(args.amount);
+  await mirror({ userId, type: LedgerTxType.REVENUE_CLAIM_IN, amountCents: claimedCents, txHash, refType: "CAMPAIGN", refId: campaignId });
+  return { claimedCents };
 }
 
 // ---------------------------------------------------------------------------
@@ -221,9 +221,9 @@ export async function confirmWithdrawEvent(userId: string, txHash: Hex, kind: "W
   const args = event?.args as { account: Address; amount?: bigint } | undefined;
   if (!args || !same(args.account, walletAddress)) throw new ChainError("That transaction isn't your withdrawal");
   if (kind === "Withdrawn") {
-    await mirror({ userId, type: LedgerTxType.WITHDRAW_COMPLETE, amountPaise: -unitsToPaise(args.amount ?? 0n), txHash });
+    await mirror({ userId, type: LedgerTxType.WITHDRAW_COMPLETE, amountCents: -unitsToCents(args.amount ?? 0n), txHash });
   }
-  return { amountPaise: unitsToPaise(args.amount ?? 0n) };
+  return { amountCents: unitsToCents(args.amount ?? 0n) };
 }
 
 /** The onchain id a tip uses for "which film" (zero for a channel tip). */

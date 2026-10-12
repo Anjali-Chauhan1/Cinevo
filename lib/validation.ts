@@ -24,13 +24,13 @@ export const creatorOnboardSchema = z.object({
   bannerUrl: z.string().url().optional().or(z.literal("")),
   socialLinks: z.array(z.string()).max(5).optional(),
   verificationDocUrl: z.string().min(1, "A verification link or document is required"),
-  subPriceRupees: z.number().min(0).max(999).default(49),
+  subPriceDollars: z.number().min(0).max(99).default(4.99),
 });
 
 export const creatorSettingsSchema = z.object({
   bio: z.string().max(500).optional(),
   bannerUrl: z.string().url().optional().or(z.literal("")),
-  subPriceRupees: z.number().min(0).max(999).optional(),
+  subPriceDollars: z.number().min(0).max(99).optional(),
   socialLinks: z.array(z.string()).max(5).optional(),
   // Subscriber perks
   subEarlyAccess: z.boolean().optional(),
@@ -48,19 +48,19 @@ export const episodeCreateSchema = z
     durationSeconds: z.number().int().min(10),
     castCredits: z.array(z.object({ name: z.string(), role: z.string() })).optional(),
     isPaid: z.boolean(),
-    rateRupees: z.number().min(0.1).max(2).optional(),
+    rateDollars: z.number().min(0.01).max(0.25).optional(),
     previewSeconds: z.number().int().min(0).max(600).optional(),
-    capRupees: z.number().min(1).max(500).optional(),
+    capDollars: z.number().min(0.25).max(20).optional(),
     premiereAt: z.string().datetime().optional(),
     earlyAccessUntil: z.string().datetime().optional(),
     publicAt: z.string().datetime().optional(),
   })
-  .refine((d) => !d.isPaid || d.rateRupees !== undefined, {
+  .refine((d) => !d.isPaid || d.rateDollars !== undefined, {
     message: "A rate is required for paid episodes",
-    path: ["rateRupees"],
+    path: ["rateDollars"],
   });
 
-const RATE_MESSAGE = "Rate must be between ₹0.10 and ₹2 per minute";
+const RATE_MESSAGE = "Rate must be between $0.01 and $0.25 per minute";
 
 const castCreditsInput = z.array(z.object({ name: z.string().trim().min(1).max(80), role: z.string().trim().min(1).max(60) })).max(40);
 
@@ -74,9 +74,9 @@ export const episodeUpdateSchema = z.object({
   videoKey: z.string().min(1).max(500).optional(),
   durationSeconds: z.number().int().min(10).optional(),
   isPaid: z.boolean().optional(),
-  rateRupees: z.number().min(0.1, RATE_MESSAGE).max(2, RATE_MESSAGE).optional(),
+  rateDollars: z.number().min(0.01, RATE_MESSAGE).max(0.25, RATE_MESSAGE).optional(),
   previewSeconds: z.number().int().min(0).max(600, "The free preview can be at most 10 minutes").optional(),
-  capRupees: z.number().min(1, "The price cap must be at least ₹1").max(500, "The price cap can be at most ₹500").optional(),
+  capDollars: z.number().min(0.25, "The price cap must be at least $0.25").max(20, "The price cap can be at most $20").optional(),
   premiereAt: z.string().datetime().nullable().optional(),
   earlyAccessUntil: z.string().datetime().nullable().optional(),
   publicAt: z.string().datetime().nullable().optional(),
@@ -89,7 +89,7 @@ export const hypeLevelsSchema = z.object({
     .array(
       z.object({
         goalType: z.enum(["TIPS", "REACTIONS"]),
-        // Rupees for TIPS, a count for REACTIONS.
+        // Dollars for TIPS, a count for REACTIONS.
         goalValue: z.number().positive().max(10_000_000),
         unlockTitle: z.string().trim().min(2).max(80),
         unlockAssetUrl: z.string().trim().max(500).optional().or(z.literal("")),
@@ -100,18 +100,18 @@ export const hypeLevelsSchema = z.object({
 
 export const voucherSchema = z.object({
   sessionToken: z.string().min(1),
-  cumulativeAmountPaise: z.number().int().min(0),
+  cumulativeAmountCents: z.number().int().min(0),
   // Seconds of video actually played since the previous tick.
   playedSeconds: z.number().min(0).max(120).optional(),
 });
 
-export const depositSchema = z.object({ amountRupees: z.number().positive().max(10000) });
-export const withdrawRequestSchema = z.object({ amountRupees: z.number().positive() });
+export const depositSchema = z.object({ amountDollars: z.number().positive().max(500) });
+export const withdrawRequestSchema = z.object({ amountDollars: z.number().positive() });
 
 export const tipSchema = z.object({
   creatorId: z.string().min(1),
   episodeId: z.string().optional(),
-  amountRupees: z.number().min(10),
+  amountDollars: z.number().min(1, "The minimum tip is $1"),
   message: z.string().max(120).optional(),
   // Onchain mode: the tip transaction the fan's wallet already sent.
   txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
@@ -119,7 +119,7 @@ export const tipSchema = z.object({
 
 export const campaignTierInput = z.object({
   name: z.string().min(2).max(40),
-  priceRupees: z.number().positive(),
+  priceDollars: z.number().positive(),
   perks: z.array(z.string()).min(1),
   backerLimit: z.number().int().positive().optional(),
 });
@@ -133,7 +133,7 @@ export const campaignCreateSchema = z.object({
   filmTitle: z.string().min(2).max(120),
   pitch: z.string().max(2000).optional(),
   pitchVideoUrl: z.string().optional(),
-  goalRupees: z.number().positive(),
+  goalDollars: z.number().positive(),
   deadline: z.string().datetime(),
   deliveryDate: z.string().datetime(),
   producerUnitsEnabled: z.boolean().default(false),
@@ -148,7 +148,7 @@ export const backPerkSchema = z.object({
 });
 export const backUnitSchema = z.object({
   type: z.literal("PRODUCER_UNIT"),
-  amountRupees: z.number().positive(),
+  amountDollars: z.number().positive(),
   riskAcknowledged: z.literal(true),
 });
 export const backCampaignSchema = z.discriminatedUnion("type", [backPerkSchema, backUnitSchema]);
@@ -173,8 +173,8 @@ export const milestoneSubmitSchema = z.object({
 /** Onchain mode: the hash of a transaction the user's wallet sent. */
 export const txHashSchema = z.object({ txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/, "Missing transaction hash") });
 
-export function rupeesToPaiseInt(rupees: number): number {
-  return Math.round(rupees * 100);
+export function dollarsToCents(dollars: number): number {
+  return Math.round(dollars * 100);
 }
 
 export { PAY_PER_MINUTE };

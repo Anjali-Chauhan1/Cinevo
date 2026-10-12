@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import type { Hex } from "viem";
 import { requireUser } from "@/lib/auth";
 import { backCampaign } from "@/lib/ledger/campaigns";
-import { backCampaignSchema, rupeesToPaiseInt, txHashSchema } from "@/lib/validation";
+import { backCampaignSchema, dollarsToCents, txHashSchema } from "@/lib/validation";
 import { ok, withApiErrors } from "@/lib/api";
 import { toJSONSafe } from "@/lib/serialize";
 import { isOnchain } from "@/lib/chain/config";
@@ -22,7 +22,7 @@ export const POST = withApiErrors(async (req: NextRequest, { params }: { params:
       ? { type: "PERK" as const, tierId: body.tierId, riskAcknowledged: body.riskAcknowledged }
       : {
           type: "PRODUCER_UNIT" as const,
-          amountPaise: rupeesToPaiseInt(body.amountRupees),
+          amountCents: dollarsToCents(body.amountDollars),
           riskAcknowledged: body.riskAcknowledged,
         };
   const backing = await backCampaign(user.id, id, input);

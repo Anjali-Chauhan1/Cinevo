@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireUser, ForbiddenError } from "@/lib/auth";
-import { creatorOnboardSchema, rupeesToPaiseInt } from "@/lib/validation";
+import { creatorOnboardSchema, dollarsToCents } from "@/lib/validation";
 import { ok, withApiErrors } from "@/lib/api";
 import { VerificationStatus } from "@/lib/constants";
 
@@ -25,7 +25,7 @@ export const POST = withApiErrors(async (req: NextRequest) => {
       socialLinks: body.socialLinks ? JSON.stringify(body.socialLinks) : null,
       verificationDocUrl: body.verificationDocUrl,
       verificationStatus: VerificationStatus.PENDING,
-      subPriceRupeesPaise: rupeesToPaiseInt(body.subPriceRupees),
+      subPriceCents: dollarsToCents(body.subPriceDollars),
     },
   });
 

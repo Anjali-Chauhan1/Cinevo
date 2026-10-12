@@ -49,24 +49,24 @@ export async function getOrCreateLedgerAccountId(tx: Tx, userId: string): Promis
 export async function credit(
   tx: Tx,
   accountId: string,
-  amountPaise: number,
+  amountCents: number,
   type: string,
   refType?: string,
   refId?: string,
   meta?: Record<string, unknown>
 ) {
-  if (amountPaise < 0) throw new Error("credit() requires a non-negative amount");
-  if (amountPaise === 0) return; // no-op, don't pollute the audit log with zero rows
+  if (amountCents < 0) throw new Error("credit() requires a non-negative amount");
+  if (amountCents === 0) return; // no-op, don't pollute the audit log with zero rows
   const account = await tx.ledgerAccount.update({
     where: { id: accountId },
-    data: { balancePaise: { increment: amountPaise } },
+    data: { balanceCents: { increment: amountCents } },
   });
   await tx.ledgerTransaction.create({
     data: {
       accountId,
       type,
-      amountPaise,
-      balanceAfter: account.balancePaise,
+      amountCents,
+      balanceAfter: account.balanceCents,
       refType,
       refId,
       meta: meta ? JSON.stringify(meta) : null,
@@ -82,33 +82,33 @@ export async function credit(
 export async function debit(
   tx: Tx,
   accountId: string,
-  amountPaise: number,
+  amountCents: number,
   type: string,
   refType?: string,
   refId?: string,
   meta?: Record<string, unknown>
 ) {
-  if (amountPaise < 0) throw new Error("debit() requires a non-negative amount");
-  if (amountPaise === 0) return;
+  if (amountCents < 0) throw new Error("debit() requires a non-negative amount");
+  if (amountCents === 0) return;
 
   const account = await tx.ledgerAccount.findUniqueOrThrow({ where: { id: accountId } });
-  const freeBalance = account.balancePaise - account.pendingWithdrawPaise;
-  if (freeBalance < amountPaise) {
+  const freeBalance = account.balanceCents - account.pendingWithdrawCents;
+  if (freeBalance < amountCents) {
     throw new InsufficientBalanceError(
-      `Balance ${freeBalance} paise is less than required ${amountPaise} paise`
+      `Balance ${freeBalance} cents is less than required ${amountCents} cents`
     );
   }
 
   const updated = await tx.ledgerAccount.update({
     where: { id: accountId },
-    data: { balancePaise: { decrement: amountPaise } },
+    data: { balanceCents: { decrement: amountCents } },
   });
   await tx.ledgerTransaction.create({
     data: {
       accountId,
       type,
-      amountPaise: -amountPaise,
-      balanceAfter: updated.balancePaise,
+      amountCents: -amountCents,
+      balanceAfter: updated.balanceCents,
       refType,
       refId,
       meta: meta ? JSON.stringify(meta) : null,
@@ -127,7 +127,7 @@ export async function transferWithFee(
   opts: {
     fromAccountId: string;
     toAccountId: string;
-    totalAmountPaise: number;
+    totalAmountCents: number;
     feeBps: number;
     debitType: string;
     creditType: string;
@@ -137,18 +137,18 @@ export async function transferWithFee(
     meta?: Record<string, unknown>;
   }
 ) {
-  const { fromAccountId, toAccountId, totalAmountPaise, feeBps } = opts;
-  if (totalAmountPaise <= 0) throw new Error("transferWithFee requires a positive amount");
+  const { fromAccountId, toAccountId, totalAmountCents, feeBps } = opts;
+  if (totalAmountCents <= 0) throw new Error("transferWithFee requires a positive amount");
 
-  const feePaise = Math.round((totalAmountPaise * feeBps) / 10000);
-  const netPaise = totalAmountPaise - feePaise;
+  const feeCents = Math.round((totalAmountCents * feeBps) / 10000);
+  const netCents = totalAmountCents - feeCents;
   const platformAccountId = await getPlatformAccountId(tx);
 
-  await debit(tx, fromAccountId, totalAmountPaise, opts.debitType, opts.refType, opts.refId, opts.meta);
-  await credit(tx, toAccountId, netPaise, opts.creditType, opts.refType, opts.refId, opts.meta);
-  if (feePaise > 0) {
-    await credit(tx, platformAccountId, feePaise, opts.feeType, opts.refType, opts.refId, opts.meta);
+  await debit(tx, fromAccountId, totalAmountCents, opts.debitType, opts.refType, opts.refId, opts.meta);
+  await credit(tx, toAccountId, netCents, opts.creditType, opts.refType, opts.refId, opts.meta);
+  if (feeCents > 0) {
+    await credit(tx, platformAccountId, feeCents, opts.feeType, opts.refType, opts.refId, opts.meta);
   }
 
-  return { feePaise, netPaise };
+  return { feeCents, netCents };
 }

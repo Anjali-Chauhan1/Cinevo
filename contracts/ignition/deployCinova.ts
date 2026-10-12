@@ -18,12 +18,11 @@ export function deployCinova(m: IgnitionModuleBuilder, token: ArgumentType) {
   const deployer = m.getAccount(0);
   const treasury = m.getParameter("treasury", deployer);
   const feeBps = m.getParameter("feeBps", 1000); // 10%
-  // Stablecoin base units (6 decimals). The app enforces ₹0.10–₹2 per minute;
-  // these onchain bounds are a safety rail with headroom for the ₹/USD rate
-  // moving (₹2 at ₹83/USD is ~24,100 units). ₹10 minimum tip at ~₹83/USD.
-  const minRatePerMinute = m.getParameter("minRatePerMinute", 1_000n);
-  const maxRatePerMinute = m.getParameter("maxRatePerMinute", 30_000n);
-  const minTip = m.getParameter("minTip", 120_000n);
+  // Stablecoin base units (6 decimals, 1 cent = 10,000 units). These match the
+  // app's limits: $0.01–$0.25 per minute and a $1 minimum tip.
+  const minRatePerMinute = m.getParameter("minRatePerMinute", 10_000n); // $0.01/min
+  const maxRatePerMinute = m.getParameter("maxRatePerMinute", 250_000n); // $0.25/min
+  const minTip = m.getParameter("minTip", 1_000_000n); // $1
   const withdrawDelaySeconds = m.getParameter("withdrawDelaySeconds", 600);
   const backerPassUri = m.getParameter("backerPassUri", "https://cinova.app/api/passes/{id}.json");
 

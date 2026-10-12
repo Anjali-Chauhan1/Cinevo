@@ -38,13 +38,13 @@ export default function SignupPage() {
   }
 
   // Onchain mode signs in through Privy (email or Google) instead of a password.
-  if (isOnchain) return <WalletSignIn title="Join Cinova" subtitle="Watch, tip, subscribe and back films — prices in ₹, no crypto knowledge needed." />;
+  if (isOnchain) return <WalletSignIn title="Join Cinova" subtitle="Watch, tip, subscribe and back films — prices in US dollars, no crypto knowledge needed." />;
 
   return (
     <div className="mx-auto max-w-sm py-12">
       <h1 className="font-serif text-2xl font-bold">Join Cinevo</h1>
       <p className="mt-1 text-sm text-[var(--text-dim)]">
-        You&apos;ll get a ₹500 demo balance to try tipping, subscriptions and pay-per-minute.
+        You&apos;ll get a $500 demo balance to try tipping, subscriptions and pay-per-minute.
       </p>
 
       <form onSubmit={onSubmit} className="card mt-6 space-y-4 p-5">

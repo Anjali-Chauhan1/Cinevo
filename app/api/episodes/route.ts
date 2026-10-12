@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireCreator, ForbiddenError } from "@/lib/auth";
-import { episodeCreateSchema, rupeesToPaiseInt } from "@/lib/validation";
+import { episodeCreateSchema, dollarsToCents } from "@/lib/validation";
 import { ok, withApiErrors } from "@/lib/api";
 import { EpisodeStatus, VerificationStatus, PAY_PER_MINUTE } from "@/lib/constants";
 import { assertValidVideoKey } from "@/lib/media";
@@ -18,10 +18,10 @@ export const POST = withApiErrors(async (req: NextRequest) => {
   await assertValidVideoKey(body.videoKey);
 
   if (body.isPaid) {
-    const rateP = rupeesToPaiseInt(body.rateRupees!);
-    if (rateP < PAY_PER_MINUTE.MIN_RATE_PAISE || rateP > PAY_PER_MINUTE.MAX_RATE_PAISE) {
+    const rateP = dollarsToCents(body.rateDollars!);
+    if (rateP < PAY_PER_MINUTE.MIN_RATE_CENTS || rateP > PAY_PER_MINUTE.MAX_RATE_CENTS) {
       return ok(
-        { error: `Rate must be between ₹${PAY_PER_MINUTE.MIN_RATE_PAISE / 100} and ₹${PAY_PER_MINUTE.MAX_RATE_PAISE / 100} per minute` },
+        { error: `Rate must be between $${PAY_PER_MINUTE.MIN_RATE_CENTS / 100} and $${PAY_PER_MINUTE.MAX_RATE_CENTS / 100} per minute` },
         400
       );
     }
@@ -48,9 +48,9 @@ export const POST = withApiErrors(async (req: NextRequest) => {
       durationSeconds: body.durationSeconds,
       castCredits: body.castCredits ? JSON.stringify(body.castCredits) : null,
       isPaid: body.isPaid,
-      rateRupeesPaise: body.isPaid ? rupeesToPaiseInt(body.rateRupees!) : 0,
+      rateCents: body.isPaid ? dollarsToCents(body.rateDollars!) : 0,
       previewSeconds: body.previewSeconds ?? PAY_PER_MINUTE.DEFAULT_PREVIEW_SECONDS,
-      capRupeesPaise: body.isPaid ? rupeesToPaiseInt(body.capRupees ?? 15) : 0,
+      capCents: body.isPaid ? dollarsToCents(body.capDollars ?? 2) : 0,
       premiereAt,
       earlyAccessUntil,
       publicAt,

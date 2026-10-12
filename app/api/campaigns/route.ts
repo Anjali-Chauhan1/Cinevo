@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireCreator, ForbiddenError } from "@/lib/auth";
 import { createCampaign } from "@/lib/ledger/campaigns";
-import { campaignCreateSchema, rupeesToPaiseInt } from "@/lib/validation";
+import { campaignCreateSchema, dollarsToCents } from "@/lib/validation";
 import { ok, withApiErrors } from "@/lib/api";
 import { toJSONSafe } from "@/lib/serialize";
 import { VerificationStatus } from "@/lib/constants";
@@ -20,13 +20,13 @@ export const POST = withApiErrors(async (req: NextRequest) => {
     filmTitle: body.filmTitle,
     pitch: body.pitch,
     pitchVideoUrl: body.pitchVideoUrl,
-    goalPaise: rupeesToPaiseInt(body.goalRupees),
+    goalCents: dollarsToCents(body.goalDollars),
     deadline: new Date(body.deadline),
     deliveryDate: new Date(body.deliveryDate),
     producerUnitsEnabled: body.producerUnitsEnabled,
     tiers: body.tiers.map((t) => ({
       name: t.name,
-      pricePaise: rupeesToPaiseInt(t.priceRupees),
+      priceCents: dollarsToCents(t.priceDollars),
       perks: t.perks,
       backerLimit: t.backerLimit,
     })),

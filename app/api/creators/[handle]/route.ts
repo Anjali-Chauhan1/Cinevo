@@ -20,8 +20,8 @@ export const GET = withApiErrors(async (_req: Request, { params }: { params: { h
   const topTips = await prisma.tip.groupBy({
     by: ["fanId"],
     where: { creatorId: creator.id },
-    _sum: { amountPaise: true },
-    orderBy: { _sum: { amountPaise: "desc" } },
+    _sum: { amountCents: true },
+    orderBy: { _sum: { amountCents: "desc" } },
     take: 10,
   });
   const tipperIds = topTips.map((t) => t.fanId);
@@ -31,7 +31,7 @@ export const GET = withApiErrors(async (_req: Request, { params }: { params: { h
   });
   const supporterWall = topTips.map((t) => ({
     user: tippers.find((u) => u.id === t.fanId),
-    totalPaise: t._sum.amountPaise ?? 0,
+    totalCents: t._sum.amountCents ?? 0,
   }));
 
   const subscriberCount = await prisma.subscription.count({ where: { creatorId: creator.id, active: true } });

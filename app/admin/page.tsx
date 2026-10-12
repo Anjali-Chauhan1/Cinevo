@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { api, ApiError } from "@/lib/client-api";
-import { paise, relativeTime } from "@/lib/format";
+import { money, relativeTime } from "@/lib/format";
 
 interface PendingCreator {
   id: string;
@@ -13,7 +13,7 @@ interface PendingCreator {
   bio: string | null;
   bannerUrl: string | null;
   socialLinks: string | null; // JSON array of strings
-  subPriceRupeesPaise: number;
+  subPriceCents: number;
   createdAt: string;
   user: { email: string; displayName: string; createdAt: string; region: string; kycStatus: string };
 }
@@ -337,7 +337,7 @@ function CreatorReviewCard({ creator: c, onApprove, onReject }: { creator: Pendi
           <div><dt className="text-[var(--text-dim)]">Account created</dt><dd>{relativeTime(c.user.createdAt)}</dd></div>
           {c.user.region && <div><dt className="text-[var(--text-dim)]">Region</dt><dd>{c.user.region}</dd></div>}
           {c.user.kycStatus && <div><dt className="text-[var(--text-dim)]">KYC</dt><dd>{c.user.kycStatus}</dd></div>}
-          <div><dt className="text-[var(--text-dim)]">Subscription price</dt><dd>{paise(c.subPriceRupeesPaise)}/month</dd></div>
+          <div><dt className="text-[var(--text-dim)]">Subscription price</dt><dd>{money(c.subPriceCents)}/month</dd></div>
           {c.bio?.trim() && <div className="sm:col-span-2"><dt className="text-[var(--text-dim)]">Bio</dt><dd className="whitespace-pre-line">{c.bio}</dd></div>}
           {c.verificationDocUrl?.trim() && <div className="sm:col-span-2"><dt className="text-[var(--text-dim)]">Verification link</dt><dd className="break-all">{c.verificationDocUrl}</dd></div>}
           {c.bannerUrl?.trim() && <div className="sm:col-span-2"><dt className="text-[var(--text-dim)]">Banner</dt><dd className="break-all">{c.bannerUrl}</dd></div>}

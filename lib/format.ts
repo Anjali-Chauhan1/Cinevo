@@ -1,13 +1,13 @@
-export function paise(amount: number): string {
+export function money(amount: number): string {
   const sign = amount < 0 ? "-" : "";
   const abs = Math.abs(amount);
-  const rupees = Math.floor(abs / 100);
+  const dollars = Math.floor(abs / 100);
   const decimals = (abs % 100).toString().padStart(2, "0");
-  return `${sign}₹${rupees.toLocaleString("en-IN")}.${decimals}`;
+  return `${sign}$${dollars.toLocaleString("en-US")}.${decimals}`;
 }
 
-export function paiseWhole(amount: number): string {
-  return `₹${Math.round(amount / 100).toLocaleString("en-IN")}`;
+export function moneyWhole(amount: number): string {
+  return `$${Math.round(amount / 100).toLocaleString("en-US")}`;
 }
 
 export function relativeTime(date: string | Date): string {

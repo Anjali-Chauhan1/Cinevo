@@ -10,7 +10,7 @@ interface Emote { id: string; code: string; glyph: string }
 interface Moderator { user: { id: string; displayName: string; email: string } }
 interface ChannelSettings {
   bio: string | null;
-  subPriceRupeesPaise: number;
+  subPriceCents: number;
   subEarlyAccess: boolean;
   subOnlyEmotes: boolean;
   merchUrl: string | null;
@@ -22,7 +22,7 @@ const errorText = (err: unknown, fallback: string) => (err instanceof ApiError ?
 export default function CreatorSettingsPage() {
   const { user, loading } = useAuth();
   const [bio, setBio] = useState("");
-  const [subPriceRupees, setSubPriceRupees] = useState(49);
+  const [subPriceDollars, setSubPriceDollars] = useState(4.99);
   const [subEarlyAccess, setSubEarlyAccess] = useState(true);
   const [subOnlyEmotes, setSubOnlyEmotes] = useState(true);
   const [merchUrl, setMerchUrl] = useState("");
@@ -40,7 +40,7 @@ export default function CreatorSettingsPage() {
     if (!user?.creator) return;
     api.get<{ creator: ChannelSettings; emotes: Emote[] }>(`/api/creators/${user.creator.handle}`).then((d) => {
       setBio(d.creator.bio ?? "");
-      setSubPriceRupees(d.creator.subPriceRupeesPaise / 100);
+      setSubPriceDollars(d.creator.subPriceCents / 100);
       setSubEarlyAccess(d.creator.subEarlyAccess);
       setSubOnlyEmotes(d.creator.subOnlyEmotes);
       setMerchUrl(d.creator.merchUrl ?? "");
@@ -68,7 +68,7 @@ export default function CreatorSettingsPage() {
   }
 
   const saveChannel = () =>
-    run("channel", () => api.patch("/api/creator/settings", { bio, subPriceRupees }), "Saved", "Save failed");
+    run("channel", () => api.patch("/api/creator/settings", { bio, subPriceDollars }), "Saved", "Save failed");
 
   const savePerks = () =>
     run(
@@ -137,8 +137,8 @@ export default function CreatorSettingsPage() {
           <textarea id="bio" className="input" rows={3} value={bio} onChange={(e) => setBio(e.target.value)} />
         </div>
         <div>
-          <label className="label" htmlFor="price">Subscription price (₹/month)</label>
-          <input id="price" className="input" type="number" min={0} value={subPriceRupees} onChange={(e) => setSubPriceRupees(Number(e.target.value))} />
+          <label className="label" htmlFor="price">Subscription price ($/month)</label>
+          <input id="price" className="input" type="number" min={0} step={0.01} value={subPriceDollars} onChange={(e) => setSubPriceDollars(Number(e.target.value))} />
           <p className="mt-1 text-xs text-[var(--text-dim)]">Fans pay by the second and can cancel any time. New prices apply to new subscribers.</p>
         </div>
         <Status card="channel" />

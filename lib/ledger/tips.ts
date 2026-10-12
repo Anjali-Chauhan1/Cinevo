@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getOrCreateLedgerAccountId, transferWithFee } from "@/lib/ledger/core";
 import { PLATFORM_FEE_BPS, CHAT, LedgerTxType } from "@/lib/constants";
+import { money } from "@/lib/format";
 
 export class TipError extends Error {
   constructor(message: string) {
@@ -9,17 +10,17 @@ export class TipError extends Error {
   }
 }
 
-const MIN_TIP_PAISE = 1000; // ₹10 minimum, per the design doc
+const MIN_TIP_CENTS = 100; // $1 minimum
 
 export async function sendTip(
   fanId: string,
   creatorId: string,
-  amountPaise: number,
+  amountCents: number,
   message?: string,
   episodeId?: string
 ) {
-  if (amountPaise < MIN_TIP_PAISE) {
-    throw new TipError(`Tips start at ${MIN_TIP_PAISE / 100} rupees`);
+  if (amountCents < MIN_TIP_CENTS) {
+    throw new TipError(`Tips start at ${money(MIN_TIP_CENTS)}`);
   }
   if (message && message.length > CHAT.TIP_MESSAGE_MAX_LEN) {
     throw new TipError(`Tip messages are limited to ${CHAT.TIP_MESSAGE_MAX_LEN} characters`);
@@ -40,13 +41,13 @@ export async function sendTip(
     const creatorAccountId = await getOrCreateLedgerAccountId(tx, creator.userId);
 
     const tip = await tx.tip.create({
-      data: { fanId, creatorId, episodeId, amountPaise, message: message?.trim() || null },
+      data: { fanId, creatorId, episodeId, amountCents, message: message?.trim() || null },
     });
 
     await transferWithFee(tx, {
       fromAccountId: fanAccountId,
       toAccountId: creatorAccountId,
-      totalAmountPaise: amountPaise,
+      totalAmountCents: amountCents,
       feeBps: PLATFORM_FEE_BPS,
       debitType: LedgerTxType.TIP_OUT,
       creditType: LedgerTxType.TIP_IN,

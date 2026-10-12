@@ -27,12 +27,12 @@ export async function registerReaction(episodeId: string, userId: string) {
   });
 }
 
-export async function addTipToHypeBar(episodeId: string, amountPaise: number) {
+export async function addTipToHypeBar(episodeId: string, amountCents: number) {
   return prisma.$transaction(async (tx) => {
     const progress = await tx.hypeProgress.upsert({
       where: { episodeId },
-      create: { episodeId, tipTotalPaise: amountPaise },
-      update: { tipTotalPaise: { increment: amountPaise } },
+      create: { episodeId, tipTotalCents: amountCents },
+      update: { tipTotalCents: { increment: amountCents } },
     });
     return { progress, newLevel: await maybeAdvanceLevel(tx, episodeId, progress) };
   });
@@ -41,7 +41,7 @@ export async function addTipToHypeBar(episodeId: string, amountPaise: number) {
 async function maybeAdvanceLevel(
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
   episodeId: string,
-  progress: { tipTotalPaise: number; reactionCount: number; lastLevelReached: number }
+  progress: { tipTotalCents: number; reactionCount: number; lastLevelReached: number }
 ) {
   const levels = await tx.hypeLevel.findMany({
     where: { episodeId, level: { gt: progress.lastLevelReached } },
@@ -53,7 +53,7 @@ async function maybeAdvanceLevel(
   for (const level of levels) {
     const goalMet =
       level.goalType === "TIPS"
-        ? progress.tipTotalPaise >= level.goalValue
+        ? progress.tipTotalCents >= level.goalValue
         : progress.reactionCount >= level.goalValue;
     if (!goalMet) break; // levels unlock in order
 

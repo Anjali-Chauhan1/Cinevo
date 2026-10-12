@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { api, ApiError } from "@/lib/client-api";
 import { PAY_PER_MINUTE } from "@/lib/constants";
-import { paise } from "@/lib/format";
+import { money } from "@/lib/format";
 import { ThumbnailUpload, VideoUpload } from "@/components/MediaUpload";
 
 interface Episode {
@@ -18,9 +18,9 @@ interface Episode {
   durationSeconds: number;
   castCredits: string | null;
   isPaid: boolean;
-  rateRupeesPaise: number;
+  rateCents: number;
   previewSeconds: number;
-  capRupeesPaise: number;
+  capCents: number;
   premiereAt: string | null;
   earlyAccessUntil: string | null;
   publicAt: string | null;
@@ -70,7 +70,7 @@ function toLocalInput(date: Date) {
 }
 
 const formatDate = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—";
+  iso ? new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) : "—";
 
 // useSearchParams needs a Suspense boundary for the production build.
 export default function EpisodeEditorPage({ params }: { params: { id: string } }) {
@@ -94,9 +94,9 @@ function EpisodeEditor({ id }: { id: string }) {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [newVideo, setNewVideo] = useState<{ videoKey: string; durationSeconds: number } | null>(null);
   const [isPaid, setIsPaid] = useState(false);
-  const [rateRupees, setRateRupees] = useState(0.5);
+  const [rateDollars, setRateDollars] = useState(0.05);
   const [previewSeconds, setPreviewSeconds] = useState<number>(PAY_PER_MINUTE.DEFAULT_PREVIEW_SECONDS);
-  const [capRupees, setCapRupees] = useState(15);
+  const [capDollars, setCapDollars] = useState(2);
   const [credits, setCredits] = useState<{ name: string; role: string }[]>([]);
   const [hype, setHype] = useState<HypeForm[]>([]);
   const [hypeReached, setHypeReached] = useState(false);
@@ -114,9 +114,9 @@ function EpisodeEditor({ id }: { id: string }) {
       setThumbnailUrl(ep.thumbnailUrl);
       setNewVideo(null);
       setIsPaid(ep.isPaid);
-      if (ep.rateRupeesPaise > 0) setRateRupees(ep.rateRupeesPaise / 100);
+      if (ep.rateCents > 0) setRateDollars(ep.rateCents / 100);
       setPreviewSeconds(ep.previewSeconds);
-      if (ep.capRupeesPaise > 0) setCapRupees(ep.capRupeesPaise / 100);
+      if (ep.capCents > 0) setCapDollars(ep.capCents / 100);
       setCredits(ep.castCredits ? JSON.parse(ep.castCredits) : []);
       setHype(
         hypeLevels.map((l) => ({
@@ -168,8 +168,8 @@ function EpisodeEditor({ id }: { id: string }) {
 
       <DetailsSection
         episode={episode}
-        state={{ title, description, thumbnailUrl, newVideo, isPaid, rateRupees, previewSeconds, capRupees, credits }}
-        set={{ setTitle, setDescription, setThumbnailUrl, setNewVideo, setIsPaid, setRateRupees, setPreviewSeconds, setCapRupees, setCredits }}
+        state={{ title, description, thumbnailUrl, newVideo, isPaid, rateDollars, previewSeconds, capDollars, credits }}
+        set={{ setTitle, setDescription, setThumbnailUrl, setNewVideo, setIsPaid, setRateDollars, setPreviewSeconds, setCapDollars, setCredits }}
         onSaved={load}
       />
 
@@ -218,9 +218,9 @@ function DetailsSection({
     thumbnailUrl: string | null;
     newVideo: { videoKey: string; durationSeconds: number } | null;
     isPaid: boolean;
-    rateRupees: number;
+    rateDollars: number;
     previewSeconds: number;
-    capRupees: number;
+    capDollars: number;
     credits: { name: string; role: string }[];
   };
   set: {
@@ -229,9 +229,9 @@ function DetailsSection({
     setThumbnailUrl: (v: string) => void;
     setNewVideo: (v: { videoKey: string; durationSeconds: number }) => void;
     setIsPaid: (v: boolean) => void;
-    setRateRupees: (v: number) => void;
+    setRateDollars: (v: number) => void;
     setPreviewSeconds: (v: number) => void;
-    setCapRupees: (v: number) => void;
+    setCapDollars: (v: number) => void;
     setCredits: (v: { name: string; role: string }[]) => void;
   };
   onSaved: () => Promise<void>;
@@ -250,7 +250,7 @@ function DetailsSection({
         thumbnailUrl: state.thumbnailUrl ?? undefined,
         ...(state.newVideo ?? {}),
         isPaid: state.isPaid,
-        ...(state.isPaid ? { rateRupees: state.rateRupees, capRupees: state.capRupees, previewSeconds: state.previewSeconds } : {}),
+        ...(state.isPaid ? { rateDollars: state.rateDollars, capDollars: state.capDollars, previewSeconds: state.previewSeconds } : {}),
         castCredits: state.credits.filter((c) => c.name.trim() && c.role.trim()),
       });
       await onSaved();
@@ -301,16 +301,16 @@ function DetailsSection({
           <>
             <div className="mt-3 grid grid-cols-3 gap-3">
               <div>
-                <label className="label" htmlFor="ep-rate">Rate ₹/min</label>
+                <label className="label" htmlFor="ep-rate">Rate $/min</label>
                 <input
                   id="ep-rate"
                   className="input"
                   type="number"
-                  step={0.1}
-                  min={PAY_PER_MINUTE.MIN_RATE_PAISE / 100}
-                  max={PAY_PER_MINUTE.MAX_RATE_PAISE / 100}
-                  value={state.rateRupees}
-                  onChange={(e) => set.setRateRupees(Number(e.target.value))}
+                  step={0.01}
+                  min={PAY_PER_MINUTE.MIN_RATE_CENTS / 100}
+                  max={PAY_PER_MINUTE.MAX_RATE_CENTS / 100}
+                  value={state.rateDollars}
+                  onChange={(e) => set.setRateDollars(Number(e.target.value))}
                 />
               </div>
               <div>
@@ -318,8 +318,8 @@ function DetailsSection({
                 <input id="ep-preview" className="input" type="number" min={0} max={600} value={state.previewSeconds} onChange={(e) => set.setPreviewSeconds(Number(e.target.value))} />
               </div>
               <div>
-                <label className="label" htmlFor="ep-cap">Price cap ₹</label>
-                <input id="ep-cap" className="input" type="number" min={1} value={state.capRupees} onChange={(e) => set.setCapRupees(Number(e.target.value))} />
+                <label className="label" htmlFor="ep-cap">Price cap $</label>
+                <input id="ep-cap" className="input" type="number" min={0.25} step={0.25} value={state.capDollars} onChange={(e) => set.setCapDollars(Number(e.target.value))} />
               </div>
             </div>
             <p className="mt-2 text-xs text-[var(--text-dim)]">
@@ -418,7 +418,7 @@ function HypeSection({
           <ol className="space-y-1 text-sm">
             {levels.map((l, i) => (
               <li key={i}>
-                Level {i + 1}: {l.goalType === "TIPS" ? `${paise(Math.round(l.goalValue * 100))} in tips` : `${l.goalValue} reactions`} → {l.unlockTitle}
+                Level {i + 1}: {l.goalType === "TIPS" ? `${money(Math.round(l.goalValue * 100))} in tips` : `${l.goalValue} reactions`} → {l.unlockTitle}
               </li>
             ))}
             {reached && <li className="text-xs text-[var(--text-dim)]">Reached levels have already been unlocked.</li>}
@@ -441,7 +441,7 @@ function HypeSection({
                   value={l.goalType}
                   onChange={(e) => update(i, { goalType: e.target.value as HypeForm["goalType"] })}
                 >
-                  <option value="TIPS">Tips (₹)</option>
+                  <option value="TIPS">Tips ($)</option>
                   <option value="REACTIONS">Reactions</option>
                 </select>
                 <input
@@ -479,8 +479,8 @@ function HypeSection({
                 setLevels([
                   ...levels,
                   levels.length === 0
-                    ? { goalType: "TIPS", goalValue: 2000, unlockTitle: "Blooper reel after the credits", unlockAssetUrl: "" }
-                    : { goalType: "TIPS", goalValue: (levels[levels.length - 1].goalValue || 1000) * 2, unlockTitle: "", unlockAssetUrl: "" },
+                    ? { goalType: "TIPS", goalValue: 25, unlockTitle: "Blooper reel after the credits", unlockAssetUrl: "" }
+                    : { goalType: "TIPS", goalValue: (levels[levels.length - 1].goalValue || 10) * 2, unlockTitle: "", unlockAssetUrl: "" },
                 ])
               }
             >

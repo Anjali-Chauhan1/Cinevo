@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { api, ApiError } from "@/lib/client-api";
 
-interface TierForm { name: string; priceRupees: number; perks: string }
+interface TierForm { name: string; priceDollars: number; perks: string }
 interface MilestoneForm { label: string; percentOfGoal: number }
 
 export default function NewCampaignPage() {
@@ -13,13 +13,13 @@ export default function NewCampaignPage() {
   const router = useRouter();
   const [filmTitle, setFilmTitle] = useState("");
   const [pitch, setPitch] = useState("");
-  const [goalRupees, setGoalRupees] = useState(10000);
+  const [goalDollars, setGoalDollars] = useState(500);
   const [deadlineDays, setDeadlineDays] = useState(20);
   const [deliveryDays, setDeliveryDays] = useState(90);
   const [producerUnitsEnabled, setProducerUnitsEnabled] = useState(false);
   const [tiers, setTiers] = useState<TierForm[]>([
-    { name: "Supporter", priceRupees: 99, perks: "Name in credits, digital badge" },
-    { name: "Insider", priceRupees: 499, perks: "Above, 48h early access, behind the scenes" },
+    { name: "Supporter", priceDollars: 1, perks: "Name in credits, digital badge" },
+    { name: "Insider", priceDollars: 5, perks: "Above, 48h early access, behind the scenes" },
   ]);
   const [milestones, setMilestones] = useState<MilestoneForm[]>([
     { label: "Script lock", percentOfGoal: 30 },
@@ -54,11 +54,11 @@ export default function NewCampaignPage() {
       await api.post("/api/campaigns", {
         filmTitle,
         pitch,
-        goalRupees,
+        goalDollars,
         deadline: new Date(now + deadlineDays * 86_400_000).toISOString(),
         deliveryDate: new Date(now + deliveryDays * 86_400_000).toISOString(),
         producerUnitsEnabled,
-        tiers: tiers.map((t) => ({ name: t.name, priceRupees: t.priceRupees, perks: t.perks.split(",").map((p) => p.trim()) })),
+        tiers: tiers.map((t) => ({ name: t.name, priceDollars: t.priceDollars, perks: t.perks.split(",").map((p) => p.trim()) })),
         milestones,
       });
       router.push(`/c/${creatorHandle}`);
@@ -84,8 +84,8 @@ export default function NewCampaignPage() {
         </div>
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="label">Goal ₹</label>
-            <input className="input" type="number" min={1} value={goalRupees} onChange={(e) => setGoalRupees(Number(e.target.value))} />
+            <label className="label">Goal $</label>
+            <input className="input" type="number" min={1} value={goalDollars} onChange={(e) => setGoalDollars(Number(e.target.value))} />
           </div>
           <div>
             <label className="label">Deadline (days)</label>
@@ -110,9 +110,9 @@ export default function NewCampaignPage() {
               <input
                 className="input"
                 type="number"
-                placeholder="₹"
-                value={t.priceRupees}
-                onChange={(e) => updateTier(i, { priceRupees: Number(e.target.value) })}
+                placeholder="$"
+                value={t.priceDollars}
+                onChange={(e) => updateTier(i, { priceDollars: Number(e.target.value) })}
               />
               <input
                 className="input col-span-2"
@@ -125,7 +125,7 @@ export default function NewCampaignPage() {
           <button
             type="button"
             className="btn-secondary mt-1 text-xs"
-            onClick={() => setTiers((p) => [...p, { name: "", priceRupees: 0, perks: "" }])}
+            onClick={() => setTiers((p) => [...p, { name: "", priceDollars: 0, perks: "" }])}
           >
             + Add tier
           </button>

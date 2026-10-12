@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireCreator } from "@/lib/auth";
-import { creatorSettingsSchema, rupeesToPaiseInt } from "@/lib/validation";
+import { creatorSettingsSchema, dollarsToCents } from "@/lib/validation";
 import { ok, withApiErrors } from "@/lib/api";
 import { VerificationStatus } from "@/lib/constants";
 import { isOnchain } from "@/lib/chain/config";
@@ -17,8 +17,8 @@ export const PATCH = withApiErrors(async (req: NextRequest) => {
       bio: body.bio,
       bannerUrl: body.bannerUrl || undefined,
       socialLinks: body.socialLinks ? JSON.stringify(body.socialLinks) : undefined,
-      subPriceRupeesPaise:
-        body.subPriceRupees !== undefined ? rupeesToPaiseInt(body.subPriceRupees) : undefined,
+      subPriceCents:
+        body.subPriceDollars !== undefined ? dollarsToCents(body.subPriceDollars) : undefined,
       subEarlyAccess: body.subEarlyAccess,
       subOnlyEmotes: body.subOnlyEmotes,
       // Empty string clears the field.
@@ -27,7 +27,7 @@ export const PATCH = withApiErrors(async (req: NextRequest) => {
     },
   });
 
-  if (isOnchain && body.subPriceRupees !== undefined && updated.verificationStatus === VerificationStatus.APPROVED) {
+  if (isOnchain && body.subPriceDollars !== undefined && updated.verificationStatus === VerificationStatus.APPROVED) {
     await setSubscriptionPriceOnchain(updated.id);
   }
   return ok({ creator: updated });

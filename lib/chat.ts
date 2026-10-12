@@ -109,7 +109,7 @@ export async function postMessage(userId: string, episodeId: string, text: strin
   });
 }
 
-export async function postTipHighlight(episodeId: string, userId: string, amountPaise: number, message?: string) {
+export async function postTipHighlight(episodeId: string, userId: string, amountCents: number, message?: string) {
   const episode = await prisma.episode.findUniqueOrThrow({ where: { id: episodeId } });
   const badges = await computeBadges(userId, episode.creatorId);
   return prisma.chatMessage.create({
@@ -118,7 +118,7 @@ export async function postTipHighlight(episodeId: string, userId: string, amount
       userId,
       text: message?.trim() || "",
       type: ChatMessageType.TIP_HIGHLIGHT,
-      tipAmountPaise: amountPaise,
+      tipAmountCents: amountCents,
       pinned: true,
       badges: JSON.stringify(badges),
     },

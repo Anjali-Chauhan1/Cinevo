@@ -5,7 +5,7 @@ import { toJSONSafe } from "@/lib/serialize";
 import { prisma } from "@/lib/db";
 import { notify, notifyMany, campaignBackerIds } from "@/lib/notifications";
 import { NotificationType } from "@/lib/constants";
-import { paise } from "@/lib/format";
+import { money } from "@/lib/format";
 import { isOnchain } from "@/lib/chain/config";
 import { approveMilestoneOnchainFlow } from "@/lib/chain/flows";
 
@@ -24,7 +24,7 @@ export const POST = withApiErrors(
     const link = `/back/${campaign.id}`;
     await notify(campaign.creator.userId, {
       type: NotificationType.MILESTONE_RELEASED,
-      title: `${paise(milestone.releasedAmountPaise)} released for "${milestone.label}"`,
+      title: `${money(milestone.releasedAmountCents)} released for "${milestone.label}"`,
       body: `Milestone approved on ${campaign.filmTitle}. The money is in your balance.`,
       link,
     });

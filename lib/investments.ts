@@ -1,16 +1,16 @@
 import type { Address } from "viem";
 import { prisma } from "@/lib/db";
 import { BackingStatus, BackingType, LedgerTxType } from "@/lib/constants";
-import { isOnchain, unitsToPaise } from "@/lib/chain/config";
+import { isOnchain, unitsToCents } from "@/lib/chain/config";
 import { publicClient } from "@/lib/chain/server";
 import { filmCampaignAbi } from "@/lib/chain/abis";
 
 /**
- * Producer Unit revenue a holder could claim right now, in paise — the same
+ * Producer Unit revenue a holder could claim right now, in cents — the same
  * figure a claim would pay. Onchain mode reads the campaign contract; the
  * demo ledger uses the same accumulator maths as claimRevenue().
  */
-export async function claimableRevenuePaise(userId: string, campaignId: string): Promise<number> {
+export async function claimableRevenueCents(userId: string, campaignId: string): Promise<number> {
   const [holding, campaign, user] = await Promise.all([
     prisma.producerUnitHolding.findUnique({ where: { campaignId_userId: { campaignId, userId } } }),
     prisma.campaign.findUniqueOrThrow({ where: { id: campaignId } }),
@@ -26,7 +26,7 @@ export async function claimableRevenuePaise(userId: string, campaignId: string):
       functionName: "claimableRevenue",
       args: [user.walletAddress as Address],
     });
-    return unitsToPaise(units);
+    return unitsToCents(units);
   }
 
   const deltaScaled = campaign.accRevenuePerUnitScaled - holding.lastClaimedAccRevenuePerUnitScaled;
@@ -43,10 +43,10 @@ export async function listInvestments(userId: string) {
 
   return Promise.all(
     holdings.map(async (h) => {
-      const [invested, received, claimablePaise] = await Promise.all([
+      const [invested, received, claimableCents] = await Promise.all([
         prisma.backing.aggregate({
           where: { userId, campaignId: h.campaignId, type: BackingType.PRODUCER_UNIT, status: BackingStatus.ACTIVE },
-          _sum: { amountPaise: true },
+          _sum: { amountCents: true },
         }),
         prisma.ledgerTransaction.aggregate({
           where: {
@@ -55,10 +55,10 @@ export async function listInvestments(userId: string) {
             refType: "CAMPAIGN",
             refId: h.campaignId,
           },
-          _sum: { amountPaise: true },
+          _sum: { amountCents: true },
         }),
         // A chain read can fail (RPC hiccup); show the rest of the row anyway.
-        claimableRevenuePaise(userId, h.campaignId).catch(() => null),
+        claimableRevenueCents(userId, h.campaignId).catch(() => null),
       ]);
       return {
         campaignId: h.campaignId,
@@ -66,9 +66,9 @@ export async function listInvestments(userId: string) {
         channelName: h.campaign.creator.channelName,
         campaignStatus: h.campaign.status,
         units: h.units,
-        investedPaise: invested._sum.amountPaise ?? 0,
-        receivedPaise: received._sum.amountPaise ?? 0,
-        claimablePaise,
+        investedCents: invested._sum.amountCents ?? 0,
+        receivedCents: received._sum.amountCents ?? 0,
+        claimableCents,
         lockUntil: h.lockUntil,
       };
     })

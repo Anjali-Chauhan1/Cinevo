@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Icon } from "@/components/Icon";
 
 const FAN_STEPS = [
-  { title: "Watch", text: "Free episodes first. Paid ones cost a few rupees a minute, with a cap — you never pay more than the price on the tin." },
+  { title: "Watch", text: "Free episodes first. Paid ones cost a few cents a minute, with a cap — you never pay more than the price on the tin." },
   { title: "Support", text: "Subscribe to a filmmaker, tip during a premiere, and get your name on their supporter wall." },
   { title: "Back the next film", text: "Your money waits in escrow and is released milestone by milestone. If the film never arrives, you get it back." },
 ];
@@ -33,7 +33,7 @@ export function Landing() {
           </Link>
           <Link href="/discover" className="btn-secondary">Explore films <Icon name="arrow" size={16} /></Link>
         </div>
-        <span className="landing-footnote">Sign in with email · prices in ₹ · no wallets or popups</span>
+        <span className="landing-footnote">Sign in with email · prices in US dollars · no wallets or popups</span>
       </section>
 
       <section className="landing-section">

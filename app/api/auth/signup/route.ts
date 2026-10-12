@@ -8,7 +8,7 @@ import { sanitizeUser } from "@/lib/serialize";
 // New accounts get a small demo-token grant so the pay-per-minute, tips and
 // subscriptions flows are immediately testable without a separate "top up"
 // step getting in the way of a first-time demo.
-const SIGNUP_GRANT_PAISE = 50000; // ₹500
+const SIGNUP_GRANT_CENTS = 500; // $5
 
 export const POST = withApiErrors(async (req: NextRequest) => {
   const body = signupSchema.parse(await req.json());
@@ -30,14 +30,14 @@ export const POST = withApiErrors(async (req: NextRequest) => {
       },
     });
     const account = await tx.ledgerAccount.create({
-      data: { userId: created.id, balancePaise: SIGNUP_GRANT_PAISE },
+      data: { userId: created.id, balanceCents: SIGNUP_GRANT_CENTS },
     });
     await tx.ledgerTransaction.create({
       data: {
         accountId: account.id,
         type: "GRANT",
-        amountPaise: SIGNUP_GRANT_PAISE,
-        balanceAfter: SIGNUP_GRANT_PAISE,
+        amountCents: SIGNUP_GRANT_CENTS,
+        balanceAfter: SIGNUP_GRANT_CENTS,
         meta: JSON.stringify({ reason: "signup bonus" }),
       },
     });

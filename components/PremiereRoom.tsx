@@ -4,14 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { api, ApiError } from "@/lib/client-api";
 import { useAuth } from "@/components/AuthProvider";
-import { paise } from "@/lib/format";
+import { money } from "@/lib/format";
 import { TipButton } from "@/components/TipButton";
 
 interface ChatMessage {
   id: string;
   text: string;
   type: string;
-  tipAmountPaise?: number | null;
+  tipAmountCents?: number | null;
   pinned?: boolean;
   badges?: { subscriberMonths: number; backerTier: string | null; verified: boolean } | null;
   createdAt: string;
@@ -28,7 +28,7 @@ interface HypeLevel {
 }
 
 interface HypeProgress {
-  tipTotalPaise: number;
+  tipTotalCents: number;
   reactionCount: number;
   lastLevelReached: number;
 }
@@ -192,7 +192,7 @@ export function PremiereRoom({
     ? Math.min(
         100,
         Math.round(
-          ((currentLevel.goalType === "TIPS" ? hypeProgress?.tipTotalPaise ?? 0 : hypeProgress?.reactionCount ?? 0) /
+          ((currentLevel.goalType === "TIPS" ? hypeProgress?.tipTotalCents ?? 0 : hypeProgress?.reactionCount ?? 0) /
             currentLevel.goalValue) *
             100
         )
@@ -258,7 +258,7 @@ export function PremiereRoom({
             ) : null}
             {m.badges?.backerTier && <span className="badge ml-1 bg-[var(--accent)]/15 text-[var(--accent)]">{m.badges.backerTier}</span>}
             {m.type === "TIP_HIGHLIGHT" && (
-              <span className="badge ml-1 bg-emerald-500/15 text-emerald-400">tipped {paise(m.tipAmountPaise ?? 0)}</span>
+              <span className="badge ml-1 bg-emerald-500/15 text-emerald-400">tipped {money(m.tipAmountCents ?? 0)}</span>
             )}
             <span className="ml-1 text-[var(--text)]">{m.text}</span>
             {isModerator && m.type === "MESSAGE" && (

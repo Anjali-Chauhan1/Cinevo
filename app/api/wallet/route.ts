@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { ok, withApiErrors } from "@/lib/api";
 import { getOrCreateLedgerAccountId } from "@/lib/ledger/core";
 import { WALLET } from "@/lib/constants";
-import { explorerTxUrl, getAddresses, isOnchain, unitsToPaise } from "@/lib/chain/config";
+import { explorerTxUrl, getAddresses, isOnchain, unitsToCents } from "@/lib/chain/config";
 import { publicClient } from "@/lib/chain/server";
 import { syncBalance } from "@/lib/chain/mirror";
 import { vaultAbi } from "@/lib/chain/abis";
@@ -32,15 +32,15 @@ export const GET = withApiErrors(async () => {
   let onchain = null;
   if (isOnchain && user.walletAddress) {
     const vault = getAddresses().vault;
-    const [balancePaise, request] = await Promise.all([
+    const [balanceCents, request] = await Promise.all([
       syncBalance(user.id),
       publicClient.readContract({ address: vault, abi: vaultAbi, functionName: "withdrawRequests", args: [user.walletAddress as Address] }),
     ]);
     const [requestedUnits, readyAt] = request;
     account = {
       ...account,
-      balancePaise,
-      pendingWithdrawPaise: unitsToPaise(requestedUnits),
+      balanceCents,
+      pendingWithdrawCents: unitsToCents(requestedUnits),
       withdrawRequestedAt: requestedUnits > 0n ? new Date((Number(readyAt) - WALLET.WITHDRAW_DELAY_MINUTES * 60) * 1000) : null,
     };
     const nextFaucetAt = user.lastFaucetAt ? new Date(user.lastFaucetAt.getTime() + FAUCET.COOLDOWN_MS) : null;
@@ -48,7 +48,7 @@ export const GET = withApiErrors(async () => {
       walletAddress: user.walletAddress,
       vaultAddress: vault,
       withdrawReadyAt: requestedUnits > 0n ? new Date(Number(readyAt) * 1000) : null,
-      faucetPaise: FAUCET.AMOUNT_PAISE,
+      faucetCents: FAUCET.AMOUNT_CENTS,
       nextFaucetAt: nextFaucetAt && nextFaucetAt > new Date() ? nextFaucetAt : null,
     };
   }

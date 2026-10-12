@@ -4,8 +4,8 @@ Solidity contracts for Cinova's money layer on Monad: pay-per-minute viewing, pe
 subscriptions, tips, and escrowed film backing with Producer Units. Built with Hardhat 3,
 OpenZeppelin 5 and Solidity 0.8.28.
 
-All amounts are in the USD stablecoin's base units (6 decimals). The app converts them to ₹
-for display.
+All amounts are in the USD stablecoin's base units (6 decimals): 1,000,000 units = $1, so one
+cent is 10,000 units. The app shows them as dollars, one to one.
 
 ## Contracts
 

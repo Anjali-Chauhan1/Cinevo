@@ -8,7 +8,7 @@ import { api, ApiError } from "@/lib/client-api";
 import { useOnchain } from "@/components/web3/Onchain";
 import { getAddresses } from "@/lib/chain/config";
 import { subscriptionsAbi } from "@/lib/chain/abis";
-import { paise, paiseWhole } from "@/lib/format";
+import { money, moneyWhole } from "@/lib/format";
 import { EpisodeCard } from "@/components/EpisodeCard";
 
 interface ChannelData {
@@ -20,7 +20,7 @@ interface ChannelData {
     bio: string | null;
     bannerUrl: string | null;
     verificationStatus: string;
-    subPriceRupeesPaise: number;
+    subPriceCents: number;
     createdAt: string;
     subEarlyAccess: boolean;
     subOnlyEmotes: boolean;
@@ -31,8 +31,8 @@ interface ChannelData {
   };
   episodes: Array<Record<string, unknown> & { id: string; status: string }>;
   emotes: Array<{ id: string; code: string; glyph: string }>;
-  campaigns: Array<{ id: string; filmTitle: string; goalPaise: number; totalBackedPaise: number; deadline: string }>;
-  supporterWall: Array<{ user?: { displayName: string } | null; totalPaise: number }>;
+  campaigns: Array<{ id: string; filmTitle: string; goalCents: number; totalBackedCents: number; deadline: string }>;
+  supporterWall: Array<{ user?: { displayName: string } | null; totalCents: number }>;
   subscriberCount: number;
   viewerState: { isSubscribed: boolean; isOwner: boolean };
 }
@@ -136,7 +136,7 @@ export default function ChannelPage({ params }: { params: { handle: string } }) 
               </button>
             ) : (
               <button className="btn-primary" disabled={busy} onClick={subscribe}>
-                Subscribe · {paiseWhole(creator.subPriceRupeesPaise)}/mo
+                Subscribe · {moneyWhole(creator.subPriceCents)}/mo
               </button>
             )
           ) : (
@@ -185,7 +185,7 @@ export default function ChannelPage({ params }: { params: { handle: string } }) 
           <h2 className="mb-3 font-serif text-lg font-semibold">Funding the next film</h2>
           <div className="grid gap-4 sm:grid-cols-2">
             {campaigns.map((c) => {
-              const pct = Math.min(100, Math.round((c.totalBackedPaise / c.goalPaise) * 100));
+              const pct = Math.min(100, Math.round((c.totalBackedCents / c.goalCents) * 100));
               return (
                 <Link key={c.id} href={`/back/${c.id}`} className="card block p-4 hover:border-[var(--accent)]/50">
                   <div className="font-medium">{c.filmTitle}</div>
@@ -193,7 +193,7 @@ export default function ChannelPage({ params }: { params: { handle: string } }) 
                     <div className="h-full bg-[var(--accent)]" style={{ width: `${pct}%` }} />
                   </div>
                   <div className="mt-1 text-xs text-[var(--text-dim)]">
-                    {paise(c.totalBackedPaise)} of {paise(c.goalPaise)} · {pct}%
+                    {money(c.totalBackedCents)} of {money(c.goalCents)} · {pct}%
                   </div>
                 </Link>
               );
@@ -223,7 +223,7 @@ export default function ChannelPage({ params }: { params: { handle: string } }) 
             {supporterWall.map((s, i) => (
               <div key={i} className="card px-3 py-2 text-sm">
                 <span className="font-medium">{s.user?.displayName ?? "A supporter"}</span>
-                <span className="ml-2 text-[var(--accent)]">{paise(s.totalPaise)}</span>
+                <span className="ml-2 text-[var(--accent)]">{money(s.totalCents)}</span>
               </div>
             ))}
           </div>

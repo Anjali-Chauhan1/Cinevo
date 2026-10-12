@@ -13,7 +13,7 @@ import { sanitizeUser } from "@/lib/serialize";
 
 // Demo-mode convenience: the same signup bonus /api/auth/signup grants, so
 // logging in with a brand-new email behaves identically to signing up.
-const AUTO_SIGNUP_GRANT_PAISE = 50000; // ₹500
+const AUTO_SIGNUP_GRANT_CENTS = 500; // $5
 
 export const POST = withApiErrors(async (req: NextRequest) => {
   const body = loginSchema.parse(await req.json());
@@ -32,14 +32,14 @@ export const POST = withApiErrors(async (req: NextRequest) => {
         data: { email: body.email, passwordHash, displayName },
       });
       const account = await tx.ledgerAccount.create({
-        data: { userId: created.id, balancePaise: AUTO_SIGNUP_GRANT_PAISE },
+        data: { userId: created.id, balanceCents: AUTO_SIGNUP_GRANT_CENTS },
       });
       await tx.ledgerTransaction.create({
         data: {
           accountId: account.id,
           type: "GRANT",
-          amountPaise: AUTO_SIGNUP_GRANT_PAISE,
-          balanceAfter: AUTO_SIGNUP_GRANT_PAISE,
+          amountCents: AUTO_SIGNUP_GRANT_CENTS,
+          balanceAfter: AUTO_SIGNUP_GRANT_CENTS,
           meta: JSON.stringify({ reason: "auto-signup on first login" }),
         },
       });

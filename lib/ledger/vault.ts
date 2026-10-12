@@ -42,7 +42,7 @@ async function resolveAccess(
     creatorId: string;
     isPaid: boolean;
     status: string;
-    capRupeesPaise: number;
+    capCents: number;
   }
 ): Promise<{ allowed: boolean; freeReason: string }> {
   const isGatedStage =
@@ -109,9 +109,9 @@ export async function startWatchSession(viewerId: string, episodeId: string) {
         sessionToken: randomUUID(),
         viewerId,
         episodeId,
-        rateRupeesPaiseSnapshot: episode.rateRupeesPaise,
+        rateCentsSnapshot: episode.rateCents,
         previewSecondsSnapshot: episode.previewSeconds,
-        capRupeesPaiseSnapshot: episode.capRupeesPaise,
+        capCentsSnapshot: episode.capCents,
         freeReason,
       },
     });
@@ -130,7 +130,7 @@ export class VoucherRejectedError extends Error {
  * sent by the player every 10 seconds for EVERY session — it doubles as the
  * heartbeat that keeps the session (and the video stream) alive.
  *
- * `cumulativeAmountPaise` must be the TOTAL owed for the session so far and
+ * `cumulativeAmountCents` must be the TOTAL owed for the session so far and
  * may never go down (replay protection, as in the onchain design). Sending
  * the same amount again is a plain heartbeat: no money moves.
  *
@@ -141,11 +141,11 @@ export class VoucherRejectedError extends Error {
 export async function submitVoucher(
   sessionToken: string,
   viewerId: string,
-  cumulativeAmountPaise: number,
+  cumulativeAmountCents: number,
   playedSeconds: number = PAY_PER_MINUTE.VOUCHER_INTERVAL_SECONDS,
   // Onchain mode: the viewer's signed voucher (already verified by the route)
   // and their live vault balance, which replaces the database balance check.
-  onchain?: { voucherUnits: string; voucherSignature: string; freeBalancePaise: number }
+  onchain?: { voucherUnits: string; voucherSignature: string; freeBalanceCents: number }
 ) {
   return prisma.$transaction(async (tx) => {
     const session = await tx.watchSession.findUnique({ where: { sessionToken } });
@@ -167,12 +167,12 @@ export async function submitVoucher(
       return tx.watchSession.update({ where: { id: session.id }, data: heartbeat });
     }
 
-    if (cumulativeAmountPaise < session.cumulativeAmountPaise) {
+    if (cumulativeAmountCents < session.cumulativeAmountCents) {
       // Stale, replayed, or clock-skewed voucher — reject, don't just ignore,
       // so the client surfaces it instead of silently stalling playback.
       throw new VoucherRejectedError("Voucher amount can't be lower than the amount already billed for this session");
     }
-    if (cumulativeAmountPaise === session.cumulativeAmountPaise) {
+    if (cumulativeAmountCents === session.cumulativeAmountCents) {
       // Still in the free preview, paused, or past the cap.
       return tx.watchSession.update({ where: { id: session.id }, data: heartbeat });
     }
@@ -180,7 +180,7 @@ export async function submitVoucher(
     // Clamp to the per-episode cap — once reached, the rest of the episode
     // is free, mirroring the onchain "pays only the highest valid signed
     // amount ... never more than the deposit" rule, applied to the cap here.
-    const clamped = Math.min(cumulativeAmountPaise, session.capRupeesPaiseSnapshot);
+    const clamped = Math.min(cumulativeAmountCents, session.capCentsSnapshot);
 
     // Cross-session overspend guard: sum every OTHER currently-active paid
     // session's running total for this viewer and make sure their free
@@ -189,8 +189,8 @@ export async function submitVoucher(
     // tabs and commit to spending more than their balance holds.
     const account = await tx.ledgerAccount.findUnique({ where: { userId: viewerId } });
     const freeBalance = onchain
-      ? onchain.freeBalancePaise
-      : (account?.balancePaise ?? 0) - (account?.pendingWithdrawPaise ?? 0);
+      ? onchain.freeBalanceCents
+      : (account?.balanceCents ?? 0) - (account?.pendingWithdrawCents ?? 0);
 
     const otherActive = await tx.watchSession.findMany({
       where: {
@@ -199,9 +199,9 @@ export async function submitVoucher(
         freeReason: FreeReason.NONE,
         id: { not: session.id },
       },
-      select: { cumulativeAmountPaise: true },
+      select: { cumulativeAmountCents: true },
     });
-    const otherCommitted = otherActive.reduce((sum, s) => sum + s.cumulativeAmountPaise, 0);
+    const otherCommitted = otherActive.reduce((sum, s) => sum + s.cumulativeAmountCents, 0);
 
     if (freeBalance < otherCommitted + clamped) {
       throw new InsufficientBalanceError(
@@ -212,7 +212,7 @@ export async function submitVoucher(
     return tx.watchSession.update({
       where: { id: session.id },
       data: {
-        cumulativeAmountPaise: clamped,
+        cumulativeAmountCents: clamped,
         ...heartbeat,
         ...(onchain ? { voucherUnits: onchain.voucherUnits, voucherSignature: onchain.voucherSignature } : {}),
       },
@@ -239,7 +239,7 @@ export async function settleSession(
     const episode = await tx.episode.findUniqueOrThrow({ where: { id: session.episodeId } });
 
     let settledAmount = 0;
-    if (session.freeReason === FreeReason.NONE && session.cumulativeAmountPaise > 0) {
+    if (session.freeReason === FreeReason.NONE && session.cumulativeAmountCents > 0) {
       const viewerAccountId = await getOrCreateLedgerAccountId(tx, session.viewerId);
       const creatorUser = await tx.creator.findUniqueOrThrow({ where: { id: episode.creatorId } });
       const creatorAccountId = await getOrCreateLedgerAccountId(tx, creatorUser.userId);
@@ -249,8 +249,8 @@ export async function settleSession(
       // actually available rather than throwing and leaving the session
       // stuck open forever. The shortfall is recorded in the audit meta.
       const account = await tx.ledgerAccount.findUniqueOrThrow({ where: { id: viewerAccountId } });
-      const freeBalance = account.balancePaise - account.pendingWithdrawPaise;
-      settledAmount = Math.min(session.cumulativeAmountPaise, Math.max(freeBalance, 0));
+      const freeBalance = account.balanceCents - account.pendingWithdrawCents;
+      settledAmount = Math.min(session.cumulativeAmountCents, Math.max(freeBalance, 0));
 
       if (settledAmount > 0) {
         // Debit the viewer once, then route the payout: straight 90/10 to
@@ -260,7 +260,7 @@ export async function settleSession(
         await debit(tx, viewerAccountId, settledAmount, LedgerTxType.VOUCHER_SETTLE, "EPISODE", episode.id, {
           sessionId: session.id,
           trigger,
-          shortfall: session.cumulativeAmountPaise - settledAmount,
+          shortfall: session.cumulativeAmountCents - settledAmount,
         });
 
         const fundingCampaign = await tx.campaign.findUnique({
@@ -284,11 +284,11 @@ export async function settleSession(
           );
         } else {
           const platformAccountId = await getPlatformAccountId(tx);
-          const feePaise = Math.round((settledAmount * PLATFORM_FEE_BPS) / 10000);
-          const netPaise = settledAmount - feePaise;
-          await credit(tx, creatorAccountId, netPaise, LedgerTxType.VOUCHER_SETTLE, "EPISODE", episode.id);
-          if (feePaise > 0) {
-            await credit(tx, platformAccountId, feePaise, LedgerTxType.PLATFORM_FEE_IN, "EPISODE", episode.id);
+          const feeCents = Math.round((settledAmount * PLATFORM_FEE_BPS) / 10000);
+          const netCents = settledAmount - feeCents;
+          await credit(tx, creatorAccountId, netCents, LedgerTxType.VOUCHER_SETTLE, "EPISODE", episode.id);
+          if (feeCents > 0) {
+            await credit(tx, platformAccountId, feeCents, LedgerTxType.PLATFORM_FEE_IN, "EPISODE", episode.id);
           }
         }
       }
@@ -298,15 +298,15 @@ export async function settleSession(
         create: {
           viewerId: session.viewerId,
           episodeId: episode.id,
-          totalPaidPaise: settledAmount,
+          totalPaidCents: settledAmount,
           secondsWatched: session.secondsWatched,
         },
         update: {
-          totalPaidPaise: { increment: settledAmount },
+          totalPaidCents: { increment: settledAmount },
           secondsWatched: { increment: session.secondsWatched },
         },
       });
-      if (access.totalPaidPaise >= session.capRupeesPaiseSnapshot && !access.capReached) {
+      if (access.totalPaidCents >= session.capCentsSnapshot && !access.capReached) {
         await tx.episodeAccess.update({
           where: { id: access.id },
           data: { capReached: true },
@@ -325,7 +325,7 @@ export async function settleSession(
       where: { id: session.id },
       data: {
         status: WatchSessionStatus.SETTLED,
-        settledAmountPaise: settledAmount,
+        settledAmountCents: settledAmount,
         settledAt: new Date(),
       },
     });
@@ -358,13 +358,13 @@ export async function autoSettleStaleSessions() {
  * Demo on-ramp: instantly credits the viewer's ledger (stands in for a card
  * top-up / stablecoin deposit). Capped per call to keep demo data sane.
  */
-export async function depositFunds(userId: string, amountPaise: number) {
-  if (amountPaise <= 0) throw new Error("Deposit amount must be positive");
-  if (amountPaise > 10_000_00) throw new Error("Demo deposits are capped at ₹10,000 per top-up");
+export async function depositFunds(userId: string, amountCents: number) {
+  if (amountCents <= 0) throw new Error("Deposit amount must be positive");
+  if (amountCents > 500_00) throw new Error("Demo deposits are capped at $500 per top-up");
 
   return prisma.$transaction(async (tx) => {
     const accountId = await getOrCreateLedgerAccountId(tx, userId);
-    await credit(tx, accountId, amountPaise, LedgerTxType.DEPOSIT);
+    await credit(tx, accountId, amountCents, LedgerTxType.DEPOSIT);
     return tx.ledgerAccount.findUniqueOrThrow({ where: { id: accountId } });
   });
 }
@@ -381,8 +381,8 @@ export class WithdrawError extends Error {
  * are settled first (server-side, automatically) so they can't request a
  * withdrawal while a billing clock is still running against the same funds.
  */
-export async function requestWithdraw(userId: string, amountPaise: number) {
-  if (amountPaise <= 0) throw new WithdrawError("Withdraw amount must be positive");
+export async function requestWithdraw(userId: string, amountCents: number) {
+  if (amountCents <= 0) throw new WithdrawError("Withdraw amount must be positive");
 
   const openSessions = await prisma.watchSession.findMany({
     where: { viewerId: userId, status: WatchSessionStatus.ACTIVE, freeReason: FreeReason.NONE },
@@ -395,15 +395,15 @@ export async function requestWithdraw(userId: string, amountPaise: number) {
   return prisma.$transaction(async (tx) => {
     const accountId = await getOrCreateLedgerAccountId(tx, userId);
     const account = await tx.ledgerAccount.findUniqueOrThrow({ where: { id: accountId } });
-    const freeBalance = account.balancePaise - account.pendingWithdrawPaise;
-    if (amountPaise > freeBalance) {
+    const freeBalance = account.balanceCents - account.pendingWithdrawCents;
+    if (amountCents > freeBalance) {
       throw new WithdrawError("Withdraw amount exceeds your available balance");
     }
 
     const updated = await tx.ledgerAccount.update({
       where: { id: accountId },
       data: {
-        pendingWithdrawPaise: { increment: amountPaise },
+        pendingWithdrawCents: { increment: amountCents },
         withdrawRequestedAt: new Date(),
       },
     });
@@ -411,9 +411,9 @@ export async function requestWithdraw(userId: string, amountPaise: number) {
       data: {
         accountId,
         type: LedgerTxType.WITHDRAW_REQUEST,
-        amountPaise: 0,
-        balanceAfter: updated.balancePaise,
-        meta: JSON.stringify({ requestedPaise: amountPaise }),
+        amountCents: 0,
+        balanceAfter: updated.balanceCents,
+        meta: JSON.stringify({ requestedCents: amountCents }),
       },
     });
     return updated;
@@ -425,7 +425,7 @@ export async function completeWithdraw(userId: string) {
     const accountId = await getOrCreateLedgerAccountId(tx, userId);
     const account = await tx.ledgerAccount.findUniqueOrThrow({ where: { id: accountId } });
 
-    if (account.pendingWithdrawPaise <= 0 || !account.withdrawRequestedAt) {
+    if (account.pendingWithdrawCents <= 0 || !account.withdrawRequestedAt) {
       throw new WithdrawError("No withdrawal is pending");
     }
     const readyAt = new Date(
@@ -435,11 +435,11 @@ export async function completeWithdraw(userId: string) {
       throw new WithdrawError(`Withdrawal unlocks at ${readyAt.toISOString()}`);
     }
 
-    const amount = account.pendingWithdrawPaise;
+    const amount = account.pendingWithdrawCents;
     await debit(tx, accountId, amount, LedgerTxType.WITHDRAW_COMPLETE);
     return tx.ledgerAccount.update({
       where: { id: accountId },
-      data: { pendingWithdrawPaise: 0, withdrawRequestedAt: null },
+      data: { pendingWithdrawCents: 0, withdrawRequestedAt: null },
     });
   });
 }
@@ -448,18 +448,18 @@ export async function cancelWithdraw(userId: string) {
   return prisma.$transaction(async (tx) => {
     const accountId = await getOrCreateLedgerAccountId(tx, userId);
     const account = await tx.ledgerAccount.findUniqueOrThrow({ where: { id: accountId } });
-    if (account.pendingWithdrawPaise <= 0) throw new WithdrawError("No withdrawal is pending");
+    if (account.pendingWithdrawCents <= 0) throw new WithdrawError("No withdrawal is pending");
 
     const updated = await tx.ledgerAccount.update({
       where: { id: accountId },
-      data: { pendingWithdrawPaise: 0, withdrawRequestedAt: null },
+      data: { pendingWithdrawCents: 0, withdrawRequestedAt: null },
     });
     await tx.ledgerTransaction.create({
       data: {
         accountId,
         type: LedgerTxType.WITHDRAW_CANCEL,
-        amountPaise: 0,
-        balanceAfter: updated.balancePaise,
+        amountCents: 0,
+        balanceAfter: updated.balanceCents,
       },
     });
     return updated;

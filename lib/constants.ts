@@ -1,3 +1,4 @@
+// Money is in US cents throughout (integers, so no floating-point drift).
 // Single source of truth for every "enum-like" string stored in SQLite
 // (Prisma's sqlite connector has no native enum type) and for the business
 // constants the design doc pins down (rate bands, caps, fee splits, etc).
@@ -8,8 +9,8 @@ export const PLATFORM_FEE_BPS = 1000; // 10% platform fee, basis points (10000 =
 export const CREATOR_SHARE_BPS = 9000; // 90% to creator on tips/subs/perk-only revenue
 
 export const PAY_PER_MINUTE = {
-  MIN_RATE_PAISE: 10, // ₹0.10/min
-  MAX_RATE_PAISE: 200, // ₹2.00/min
+  MIN_RATE_CENTS: 1, // $0.01/min
+  MAX_RATE_CENTS: 25, // $0.25/min
   DEFAULT_PREVIEW_SECONDS: 120,
   VOUCHER_INTERVAL_SECONDS: 10,
   // If no fresh voucher arrives within this window, the server treats the
@@ -27,9 +28,9 @@ export const WALLET = {
 } as const;
 
 export const PRODUCER_UNITS = {
-  MAX_PAISE_PER_PERSON_PER_FILM: 500_000, // ₹5,000
+  MAX_CENTS_PER_PERSON_PER_FILM: 6_000, // $60
   LOCK_UP_MONTHS: 12,
-  UNIT_PRICE_PAISE: 10_000, // ₹100 per unit (demo convention)
+  UNIT_PRICE_CENTS: 100, // $1 per unit (demo convention)
   // Stage 1 split (until unit holders recoup principal + 20%)
   RECOUP_MULTIPLIER_BPS: 12000, // 120% of amount raised
   STAGE1_UNITS_BPS: 5000, // 50%
@@ -244,14 +245,14 @@ export const LedgerTxType = {
 /** A single platform "operator" ledger account that collects the 10% fee. */
 export const PLATFORM_LEDGER_EMAIL = "platform@cinevo.internal";
 
-export function paiseToRupeeLabel(paise: number): string {
-  const sign = paise < 0 ? "-" : "";
-  const abs = Math.abs(paise);
-  const rupees = Math.floor(abs / 100);
+export function centsToDollarLabel(cents: number): string {
+  const sign = cents < 0 ? "-" : "";
+  const abs = Math.abs(cents);
+  const dollars = Math.floor(abs / 100);
   const decimals = (abs % 100).toString().padStart(2, "0");
-  return `${sign}₹${rupees.toLocaleString("en-IN")}.${decimals}`;
+  return `${sign}$${dollars.toLocaleString("en-US")}.${decimals}`;
 }
 
-export function rupeesToPaise(rupees: number): number {
-  return Math.round(rupees * 100);
+export function dollarsToCents(dollars: number): number {
+  return Math.round(dollars * 100);
 }

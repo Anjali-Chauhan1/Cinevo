@@ -24,8 +24,8 @@ export async function getCreatorEarnings(creatorId: string, userId: string) {
 
   const income = account
     ? await prisma.ledgerTransaction.findMany({
-        where: { accountId: account.id, type: { in: INCOME_TYPES }, amountPaise: { gt: 0 } },
-        select: { type: true, amountPaise: true, createdAt: true, refType: true, refId: true },
+        where: { accountId: account.id, type: { in: INCOME_TYPES }, amountCents: { gt: 0 } },
+        select: { type: true, amountCents: true, createdAt: true, refType: true, refId: true },
         orderBy: { createdAt: "desc" },
       })
     : [];
@@ -37,15 +37,15 @@ export async function getCreatorEarnings(creatorId: string, userId: string) {
   // One bucket per day for the last 30 days, oldest first.
   const daily = Array.from({ length: 30 }, (_, i) => {
     const day = new Date(Date.now() - (29 - i) * DAY_MS);
-    return { date: day.toISOString().slice(0, 10), totalPaise: 0 };
+    return { date: day.toISOString().slice(0, 10), totalCents: 0 };
   });
   for (const tx of income) {
     const key = keyOf(tx.type);
-    allTime[key] += tx.amountPaise;
+    allTime[key] += tx.amountCents;
     if (tx.createdAt >= since30) {
-      last30[key] += tx.amountPaise;
+      last30[key] += tx.amountCents;
       const bucket = daily.find((d) => d.date === tx.createdAt.toISOString().slice(0, 10));
-      if (bucket) bucket.totalPaise += tx.amountPaise;
+      if (bucket) bucket.totalCents += tx.amountCents;
     }
   }
 
@@ -58,20 +58,20 @@ export async function getCreatorEarnings(creatorId: string, userId: string) {
 
   // What each fan has paid this creator, across every way to support them.
   const [tips, sessions, subPayments, backings, viewerGroups] = await Promise.all([
-    prisma.tip.groupBy({ by: ["fanId"], where: { creatorId }, _sum: { amountPaise: true } }),
+    prisma.tip.groupBy({ by: ["fanId"], where: { creatorId }, _sum: { amountCents: true } }),
     prisma.watchSession.groupBy({
       by: ["viewerId"],
-      where: { episodeId: { in: episodeIds }, settledAmountPaise: { gt: 0 } },
-      _sum: { settledAmountPaise: true },
+      where: { episodeId: { in: episodeIds }, settledAmountCents: { gt: 0 } },
+      _sum: { settledAmountCents: true },
     }),
     prisma.ledgerTransaction.findMany({
       where: { type: LedgerTxType.SUB_STREAM_OUT, refType: "SUBSCRIPTION", refId: { in: subscriptions.map((s) => s.id) } },
-      select: { amountPaise: true, refId: true },
+      select: { amountCents: true, refId: true },
     }),
     prisma.backing.groupBy({
       by: ["userId"],
       where: { campaignId: { in: campaigns.map((c) => c.id) }, status: BackingStatus.ACTIVE },
-      _sum: { amountPaise: true },
+      _sum: { amountCents: true },
     }),
     prisma.watchSession.groupBy({ by: ["viewerId"], where: { episodeId: { in: episodeIds } } }),
   ]);
@@ -82,19 +82,19 @@ export async function getCreatorEarnings(creatorId: string, userId: string) {
     entry[key] += amount;
     supporters.set(fanId, entry);
   };
-  for (const t of tips) add(t.fanId, "tips", t._sum.amountPaise ?? 0);
-  for (const s of sessions) add(s.viewerId, "payPerMinute", s._sum.settledAmountPaise ?? 0);
+  for (const t of tips) add(t.fanId, "tips", t._sum.amountCents ?? 0);
+  for (const s of sessions) add(s.viewerId, "payPerMinute", s._sum.settledAmountCents ?? 0);
   const fanOfSubscription = new Map(subscriptions.map((s) => [s.id, s.fanId]));
   for (const p of subPayments) {
     const fanId = fanOfSubscription.get(p.refId!);
-    if (fanId) add(fanId, "subscriptions", Math.abs(p.amountPaise)); // debits are stored negative
+    if (fanId) add(fanId, "subscriptions", Math.abs(p.amountCents)); // debits are stored negative
   }
-  for (const b of backings) add(b.userId, "backing", b._sum.amountPaise ?? 0);
+  for (const b of backings) add(b.userId, "backing", b._sum.amountCents ?? 0);
 
   const ranked = [...supporters.entries()]
-    .map(([fanId, parts]) => ({ fanId, ...parts, totalPaise: parts.tips + parts.payPerMinute + parts.subscriptions + parts.backing }))
-    .filter((s) => s.totalPaise > 0)
-    .sort((a, b) => b.totalPaise - a.totalPaise)
+    .map(([fanId, parts]) => ({ fanId, ...parts, totalCents: parts.tips + parts.payPerMinute + parts.subscriptions + parts.backing }))
+    .filter((s) => s.totalCents > 0)
+    .sort((a, b) => b.totalCents - a.totalCents)
     .slice(0, 10);
   const names = await prisma.user.findMany({
     where: { id: { in: ranked.map((r) => r.fanId) } },
@@ -109,21 +109,21 @@ export async function getCreatorEarnings(creatorId: string, userId: string) {
   const recent = income.slice(0, 10).map((tx) => ({
     label: INCOME_SOURCES.find((s) => s.type === tx.type)!.label,
     detail: tx.refType === "EPISODE" ? episodeTitle.get(tx.refId ?? "") ?? null : null,
-    amountPaise: tx.amountPaise,
+    amountCents: tx.amountCents,
     createdAt: tx.createdAt,
   }));
 
   const sum = (r: Record<SourceKey, number>) => Object.values(r).reduce((a, b) => a + b, 0);
   return {
-    sources: INCOME_SOURCES.map((s) => ({ key: s.key, label: s.label, last30Paise: last30[s.key], allTimePaise: allTime[s.key] })),
-    totals: { last30Paise: sum(last30), allTimePaise: sum(allTime) },
+    sources: INCOME_SOURCES.map((s) => ({ key: s.key, label: s.label, last30Cents: last30[s.key], allTimeCents: allTime[s.key] })),
+    totals: { last30Cents: sum(last30), allTimeCents: sum(allTime) },
     daily,
     topSupporters,
     recent,
     stats: {
       activeSubscribers: subscriptions.filter((s) => s.active).length,
       uniqueViewers: viewerGroups.length,
-      balancePaise: account?.balancePaise ?? 0,
+      balanceCents: account?.balanceCents ?? 0,
     },
   };
 }

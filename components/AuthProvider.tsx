@@ -20,7 +20,7 @@ export interface CurrentUser {
     channelName: string;
     verificationStatus: string;
   } | null;
-  ledgerAccount: { balancePaise: number } | null;
+  ledgerAccount: { balanceCents: number } | null;
 }
 
 interface AuthContextValue {

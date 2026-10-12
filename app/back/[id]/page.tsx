@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { api, ApiError } from "@/lib/client-api";
-import { paise, relativeTime } from "@/lib/format";
+import { money, relativeTime } from "@/lib/format";
 import { keccak256, toBytes, type Address, type Hex } from "viem";
 import { useOnchain } from "@/components/web3/Onchain";
 import { getAddresses } from "@/lib/chain/config";
@@ -20,7 +20,7 @@ const ackHash = (text: string): Hex => keccak256(toBytes(text));
 interface Tier {
   id: string;
   name: string;
-  pricePaise: number;
+  priceCents: number;
   perks: string;
   backerLimit: number | null;
   backedCount: number;
@@ -40,8 +40,8 @@ interface CampaignData {
     filmTitle: string;
     pitch: string | null;
     pitchVideoUrl: string | null;
-    goalPaise: number;
-    totalBackedPaise: number;
+    goalCents: number;
+    totalBackedCents: number;
     deadline: string;
     deliveryDate: string;
     status: string;
@@ -52,13 +52,13 @@ interface CampaignData {
   };
   backerCount: number;
   onchain: { contractAddress: Address | null } | null;
-  unitEconomics: { unitPricePaise: number; maxPaisePerPerson: number; lockUpMonths: number; permittedRegions: string[] } | null;
+  unitEconomics: { unitPriceCents: number; maxCentsPerPerson: number; lockUpMonths: number; permittedRegions: string[] } | null;
   viewerState: {
     signedIn: boolean;
     isOwner?: boolean;
-    myBackings?: Array<{ type: string; amountPaise: number; status: string }>;
+    myBackings?: Array<{ type: string; amountCents: number; status: string }>;
     myUnits?: number;
-    claimablePaise?: number | null;
+    claimableCents?: number | null;
     producerUnitsAvailableToViewer?: boolean;
     kycStatus?: string;
     region?: string;
@@ -71,7 +71,7 @@ export default function CampaignPage({ params }: { params: { id: string } }) {
   const [data, setData] = useState<CampaignData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedTier, setSelectedTier] = useState<Tier | null>(null);
-  const [unitAmount, setUnitAmount] = useState(100);
+  const [unitAmount, setUnitAmount] = useState(10);
   const [showUnitCheckout, setShowUnitCheckout] = useState(false);
   const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -96,7 +96,7 @@ export default function CampaignPage({ params }: { params: { id: string } }) {
 
   const { campaign, backerCount, unitEconomics, viewerState } = data;
   const verifyHref = `/verify?next=${encodeURIComponent(`/back/${id}`)}`;
-  const pct = Math.min(100, Math.round((campaign.totalBackedPaise / campaign.goalPaise) * 100));
+  const pct = Math.min(100, Math.round((campaign.totalBackedCents / campaign.goalCents) * 100));
   const contract = data.onchain?.contractAddress ?? null;
   const errorText = (err: unknown, fallback: string) => (err instanceof ApiError || err instanceof Error ? err.message : fallback);
 
@@ -136,12 +136,12 @@ export default function CampaignPage({ params }: { params: { id: string } }) {
     setError(null);
     try {
       if (chain.enabled && unitEconomics) {
-        const units = Math.floor((unitAmount * 100) / unitEconomics.unitPricePaise);
+        const units = Math.floor((unitAmount * 100) / unitEconomics.unitPriceCents);
         await onchainBack("buyUnits", [BigInt(units), ackHash(unitAck(unitEconomics.lockUpMonths))]);
       } else {
         await api.post(`/api/campaigns/${id}/back`, {
           type: "PRODUCER_UNIT",
-          amountRupees: unitAmount,
+          amountDollars: unitAmount,
           riskAcknowledged: true,
         });
       }
@@ -174,11 +174,11 @@ export default function CampaignPage({ params }: { params: { id: string } }) {
     setBusy(true);
     try {
       const res = chain.enabled
-        ? await api.post<{ claimedPaise: number }>(`/api/campaigns/${id}/claim-revenue`, { txHash: await onchainCampaignCall("claimRevenue") })
-        : await api.post<{ claimedPaise: number }>(`/api/campaigns/${id}/claim-revenue`);
+        ? await api.post<{ claimedCents: number }>(`/api/campaigns/${id}/claim-revenue`, { txHash: await onchainCampaignCall("claimRevenue") })
+        : await api.post<{ claimedCents: number }>(`/api/campaigns/${id}/claim-revenue`);
       await load();
       await refreshAuth();
-      setError(`Claimed ${paise(res.claimedPaise)}`);
+      setError(`Claimed ${money(res.claimedCents)}`);
     } catch (err) {
       setError(errorText(err, "Claim failed"));
     } finally {
@@ -203,8 +203,8 @@ export default function CampaignPage({ params }: { params: { id: string } }) {
           </div>
           <div className="mt-2 flex justify-between text-sm">
             <span>
-              <span className="font-semibold">{paise(campaign.totalBackedPaise)}</span>{" "}
-              <span className="text-[var(--text-dim)]">raised of {paise(campaign.goalPaise)}</span>
+              <span className="font-semibold">{money(campaign.totalBackedCents)}</span>{" "}
+              <span className="text-[var(--text-dim)]">raised of {money(campaign.goalCents)}</span>
             </span>
             <span className="text-[var(--text-dim)]">{backerCount} backers</span>
           </div>
@@ -239,15 +239,15 @@ export default function CampaignPage({ params }: { params: { id: string } }) {
           <div className="card mt-4 p-4">
             <p className="text-sm">You hold {viewerState.myUnits} Producer Units in this film.</p>
             <p className="mt-1 text-xs text-[var(--text-dim)]">
-              {viewerState.claimablePaise == null
+              {viewerState.claimableCents == null
                 ? "Couldn't check your claimable revenue right now."
-                : viewerState.claimablePaise > 0
-                  ? `${paise(viewerState.claimablePaise)} of revenue is ready to claim.`
+                : viewerState.claimableCents > 0
+                  ? `${money(viewerState.claimableCents)} of revenue is ready to claim.`
                   : "No new revenue to claim yet — it builds up as people pay to watch the film."}
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-3">
-              <button className="btn-secondary" onClick={claimRevenue} disabled={busy || !viewerState.claimablePaise}>
-                {viewerState.claimablePaise ? `Claim ${paise(viewerState.claimablePaise)}` : "Claim revenue"}
+              <button className="btn-secondary" onClick={claimRevenue} disabled={busy || !viewerState.claimableCents}>
+                {viewerState.claimableCents ? `Claim ${money(viewerState.claimableCents)}` : "Claim revenue"}
               </button>
               <Link href="/profile#investments" className="text-xs text-[var(--accent)] hover:underline">All your investments →</Link>
             </div>
@@ -297,7 +297,7 @@ export default function CampaignPage({ params }: { params: { id: string } }) {
               >
                 <div className="flex justify-between font-medium">
                   <span>{t.name}</span>
-                  <span>{paise(t.pricePaise)}</span>
+                  <span>{money(t.priceCents)}</span>
                 </div>
                 <ul className="mt-1 text-xs text-[var(--text-dim)]">
                   {JSON.parse(t.perks).map((p: string, i: number) => (
@@ -316,7 +316,7 @@ export default function CampaignPage({ params }: { params: { id: string } }) {
               </label>
               {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
               <button className="btn-primary mt-2 w-full" onClick={backPerk} disabled={!ack || busy || !user}>
-                {user ? `Back ${paise(selectedTier.pricePaise)}` : "Sign in to back"}
+                {user ? `Back ${money(selectedTier.priceCents)}` : "Sign in to back"}
               </button>
             </div>
           )}
@@ -326,7 +326,7 @@ export default function CampaignPage({ params }: { params: { id: string } }) {
           <div className="card p-4">
             <h3 className="mb-1 font-medium">Producer Units</h3>
             <p className="text-xs text-[var(--text-dim)]">
-              Earn a share of this film&apos;s revenue if it performs. Capped at {paise(unitEconomics.maxPaisePerPerson)}
+              Earn a share of this film&apos;s revenue if it performs. Capped at {money(unitEconomics.maxCentsPerPerson)}
               /person, {unitEconomics.lockUpMonths}-month lock-up, {unitEconomics.permittedRegions.join(", ")} only, KYC required.
             </p>
 
@@ -353,20 +353,20 @@ export default function CampaignPage({ params }: { params: { id: string } }) {
                 <input
                   className="input"
                   type="number"
-                  step={unitEconomics.unitPricePaise / 100}
-                  min={unitEconomics.unitPricePaise / 100}
+                  step={unitEconomics.unitPriceCents / 100}
+                  min={unitEconomics.unitPriceCents / 100}
                   value={unitAmount}
                   onChange={(e) => setUnitAmount(Number(e.target.value))}
                 />
                 <p className="mt-1 text-xs text-[var(--text-dim)]">
-                  {Math.floor((unitAmount * 100) / unitEconomics.unitPricePaise)} units
+                  {Math.floor((unitAmount * 100) / unitEconomics.unitPriceCents)} units
                 </p>
                 <label className="mt-2 flex items-start gap-2 text-xs text-[var(--text-dim)]">
                   <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5" />
                   {unitAck(unitEconomics.lockUpMonths)}
                 </label>
                 <button className="btn-primary mt-2 w-full" onClick={backUnits} disabled={!ack || busy}>
-                  Buy ₹{unitAmount} of units
+                  Buy ${unitAmount} of units
                 </button>
               </div>
             ) : (

@@ -8,7 +8,7 @@ import { WatchPlayer } from "@/components/WatchPlayer";
 import { ReviewSection } from "@/components/ReviewSection";
 import { TipButton } from "@/components/TipButton";
 import { Icon } from "@/components/Icon";
-import { paise } from "@/lib/format";
+import { money } from "@/lib/format";
 
 interface EpisodeData {
   episode: {
@@ -18,8 +18,8 @@ interface EpisodeData {
     videoKey: string;
     status: string;
     isPaid: boolean;
-    rateRupeesPaise: number;
-    capRupeesPaise: number;
+    rateCents: number;
+    capCents: number;
     previewSeconds: number;
     premiereAt: string | null;
     castCredits: string | null;
@@ -100,7 +100,7 @@ export default function WatchPage({ params }: { params: { id: string } }) {
       <div>
         {episode.status === "SCHEDULED" || episode.status === "DRAFT" ? (
           <div className="flex aspect-video items-center justify-center rounded-xl bg-black text-[var(--text-dim)]">
-            <div className="p-8 text-center"><Icon name="film" size={36} className="mx-auto mb-4 text-[var(--accent)]" /><h2 className="text-xl text-[var(--text)]">Something worth waiting for.</h2><p className="mt-3 text-sm">{episode.premiereAt ? `Premiering ${new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" }).format(new Date(episode.premiereAt))} IST` : "The filmmaker is getting this story ready for you."}</p><Link href={`/c/${episode.creator.handle}`} className="btn-secondary mt-5">Visit the filmmaker&apos;s channel</Link></div>
+            <div className="p-8 text-center"><Icon name="film" size={36} className="mx-auto mb-4 text-[var(--accent)]" /><h2 className="text-xl text-[var(--text)]">Something worth waiting for.</h2><p className="mt-3 text-sm">{episode.premiereAt ? `Premiering ${new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" }).format(new Date(episode.premiereAt))} IST` : "The filmmaker is getting this story ready for you."}</p><Link href={`/c/${episode.creator.handle}`} className="btn-secondary mt-5">Visit the filmmaker&apos;s channel</Link></div>
           </div>
         ) : canWatch ? (
           <WatchPlayer episodeId={episode.id} videoUrl={episode.videoKey} onSessionEnded={load} />
@@ -172,8 +172,8 @@ export default function WatchPage({ params }: { params: { id: string } }) {
       <aside className="space-y-4">
         <div className="card p-6">
           <span className="eyebrow">YOUR SEAT AT THE SCREEN</span>
-          <h2 className="mt-4 text-xl font-semibold">{episode.isPaid ? `${paise(episode.rateRupeesPaise)}/min` : "Free to watch"}</h2>
-          {episode.isPaid ? <dl className="mt-5 space-y-3 text-sm"><div className="flex justify-between gap-3"><dt className="text-[var(--text-dim)]">Free preview</dt><dd>{episode.previewSeconds} seconds</dd></div><div className="flex justify-between gap-3"><dt className="text-[var(--text-dim)]">Maximum charge</dt><dd>{paise(episode.capRupeesPaise)}</dd></div></dl> : <p className="mt-3 text-sm text-[var(--text-dim)]">Enjoy this story with no viewing charge.</p>}
+          <h2 className="mt-4 text-xl font-semibold">{episode.isPaid ? `${money(episode.rateCents)}/min` : "Free to watch"}</h2>
+          {episode.isPaid ? <dl className="mt-5 space-y-3 text-sm"><div className="flex justify-between gap-3"><dt className="text-[var(--text-dim)]">Free preview</dt><dd>{episode.previewSeconds} seconds</dd></div><div className="flex justify-between gap-3"><dt className="text-[var(--text-dim)]">Maximum charge</dt><dd>{money(episode.capCents)}</dd></div></dl> : <p className="mt-3 text-sm text-[var(--text-dim)]">Enjoy this story with no viewing charge.</p>}
           <p className="mt-5 border-t border-[var(--border)] pt-4 text-xs leading-relaxed text-[var(--text-dim)]">Subscribers watch without per-minute charges. Premiere and early-access viewing is for subscribers and eligible backers.</p>
           <Link href={`/c/${episode.creator.handle}`} className="btn-secondary mt-5 w-full">Explore the channel<Icon name="arrow" size={16} /></Link>
         </div>

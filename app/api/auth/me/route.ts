@@ -10,7 +10,7 @@ export const GET = withApiErrors(async () => {
   // Onchain mode: the balance shown everywhere is the live vault balance.
   if (isOnchain && user.walletAddress && user.ledgerAccount) {
     try {
-      user.ledgerAccount.balancePaise = await syncBalance(user.id);
+      user.ledgerAccount.balanceCents = await syncBalance(user.id);
     } catch {
       // RPC hiccup: fall back to the last cached balance.
     }

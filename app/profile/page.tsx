@@ -4,11 +4,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { api } from "@/lib/client-api";
-import { paise } from "@/lib/format";
+import { money } from "@/lib/format";
 
 interface ProfileData {
   reviews: Array<{ id: string; stars: number; episode: { id: string; title: string }; createdAt: string }>;
-  backings: Array<{ id: string; amountPaise: number; type: string; campaign: { id: string; filmTitle: string }; tier: { name: string } | null }>;
+  backings: Array<{ id: string; amountCents: number; type: string; campaign: { id: string; filmTitle: string }; tier: { name: string } | null }>;
   subscriptionCount: number;
 }
 
@@ -18,9 +18,9 @@ interface Investment {
   channelName: string;
   campaignStatus: string;
   units: number;
-  investedPaise: number;
-  receivedPaise: number;
-  claimablePaise: number | null;
+  investedCents: number;
+  receivedCents: number;
+  claimableCents: number | null;
   lockUntil: string;
 }
 
@@ -85,15 +85,15 @@ export default function ProfilePage() {
                 <p className="text-xs text-[var(--text-dim)]">{inv.channelName}</p>
                 <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4">
                   <div><dt className="text-[var(--text-dim)]">Units</dt><dd className="text-sm">{inv.units}</dd></div>
-                  <div><dt className="text-[var(--text-dim)]">Invested</dt><dd className="text-sm">{paise(inv.investedPaise)}</dd></div>
-                  <div><dt className="text-[var(--text-dim)]">Received so far</dt><dd className="text-sm">{paise(inv.receivedPaise)}</dd></div>
+                  <div><dt className="text-[var(--text-dim)]">Invested</dt><dd className="text-sm">{money(inv.investedCents)}</dd></div>
+                  <div><dt className="text-[var(--text-dim)]">Received so far</dt><dd className="text-sm">{money(inv.receivedCents)}</dd></div>
                   <div>
                     <dt className="text-[var(--text-dim)]">Ready to claim</dt>
-                    <dd className={`text-sm ${inv.claimablePaise ? "text-emerald-400" : ""}`}>{inv.claimablePaise == null ? "—" : paise(inv.claimablePaise)}</dd>
+                    <dd className={`text-sm ${inv.claimableCents ? "text-emerald-400" : ""}`}>{inv.claimableCents == null ? "—" : money(inv.claimableCents)}</dd>
                   </div>
                 </dl>
                 <p className="mt-2 text-[11px] text-[var(--text-dim)]">
-                  Locked until {new Date(inv.lockUntil).toLocaleDateString("en-IN", { dateStyle: "medium" })} — units can&apos;t be transferred.
+                  Locked until {new Date(inv.lockUntil).toLocaleDateString("en-US", { dateStyle: "medium" })} — units can&apos;t be transferred.
                 </p>
               </Link>
             ))}
@@ -110,7 +110,7 @@ export default function ProfilePage() {
             {data.backings.map((b) => (
               <Link key={b.id} href={`/back/${b.campaign.id}`} className="card flex items-center justify-between p-3 text-sm hover:border-[var(--accent)]/50">
                 <span>{b.campaign.filmTitle} {b.tier && <span className="text-[var(--text-dim)]">· {b.tier.name}</span>}</span>
-                <span>{paise(b.amountPaise)}</span>
+                <span>{money(b.amountCents)}</span>
               </Link>
             ))}
           </div>

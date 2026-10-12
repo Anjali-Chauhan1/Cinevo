@@ -111,14 +111,14 @@ All accounts below use the password **`password123`** in demo mode.
 
 | Email | Role / scenario | Initial demo wallet |
 | --- | --- | --- |
-| `viewer@cinevo.app` | Viewer | INR 2,000 |
-| `fan2@cinevo.app` | Second viewer | INR 1,500 |
+| `viewer@cinevo.app` | Viewer | $25 |
+| `fan2@cinevo.app` | Second viewer | $20 |
 | `priya@cinevo.app` | Approved creator, Priya Films | No seeded grant |
 | `rahul@cinevo.app` | Approved creator, Rahul Reels | No seeded grant |
-| `investor@cinevo.app` | US-region, KYC-verified Producer Unit participant | INR 10,000 |
+| `investor@cinevo.app` | US-region, KYC-verified Producer Unit participant | $200 |
 | `admin@cinevo.app` | Administrator | No seeded grant |
 
-You can also register at `/signup`. In demo mode, logging in with a new email and a nonempty password automatically creates an account with INR 500 in demo credit. Existing accounts require their correct password; the dedicated signup form requires at least eight password characters.
+You can also register at `/signup`. In demo mode, logging in with a new email and a nonempty password automatically creates an account with $5 in demo credit. Existing accounts require their correct password; the dedicated signup form requires at least eight password characters.
 
 A useful walkthrough is to watch and tip as a viewer, inspect earnings as a creator, and open `/admin` as the administrator. Use the investor account to explore the region- and KYC-gated backing flow.
 
@@ -219,15 +219,15 @@ The main application constants live in [lib/constants.ts](lib/constants.ts). Con
 
 | Rule | Current application behavior |
 | --- | --- |
-| Currency | Demo amounts are integer paise, displayed as INR. Onchain amounts use a six-decimal USD token and a configured conversion rate. |
-| Metered viewing | Rate range of INR 0.10–2.00 per minute; default preview of 120 seconds. |
+| Currency | US dollars. Amounts are stored as integer cents. Onchain amounts use a six-decimal USD test token, one to one with the dollars shown (1 cent = 10,000 units). |
+| Metered viewing | Rate range of $0.01–0.25 per minute; price cap of $0.25–20 per episode; default preview of 120 seconds. |
 | Voucher cadence | Every 10 seconds; sessions become eligible for stale settlement after 60 seconds without a fresh voucher. Actual settlement waits for a sweep. |
 | Price cap | A per-episode cap limits payment; reaching it grants free rewatches. |
 | Standard split | Tips, subscriptions, and ordinary viewing revenue use a 90% creator / 10% platform split. |
 | Subscriptions | Accrue per second using a 30-day month; charges are applied lazily on interactions or sweeps. Insufficient funds pause the subscription. |
 | Withdrawals | A request has a 10-minute delay before completion; pending requests can be cancelled. |
 | Producer Unit eligibility | KYC approval and a permitted region; the application's current region allowlist contains `US`. |
-| Producer Unit size and cap | INR 100 per unit; maximum INR 5,000 per person per film in the application defaults. |
+| Producer Unit size and cap | $1 per unit; maximum $60 per person per film in the application defaults. |
 | Review eligibility | Watch at least 50% of a film, or 100% when its duration is under 10 minutes. |
 
 For an episode linked to a Producer Unit campaign, viewing revenue follows this waterfall:
@@ -312,7 +312,6 @@ Instead of the Hardhat keystore, the deploy also reads `MONAD_TESTNET_RPC_URL` a
 NEXT_PUBLIC_CHAIN_MODE="onchain"
 NEXT_PUBLIC_CHAIN_ID=10143
 NEXT_PUBLIC_RPC_URL="https://testnet-rpc.monad.xyz"
-NEXT_PUBLIC_USD_INR_RATE=83
 NEXT_PUBLIC_PRIVY_APP_ID="your-app-id"
 PRIVY_APP_SECRET="your-app-secret"
 OPERATOR_PRIVATE_KEY="your-testnet-operator-private-key"
@@ -326,7 +325,7 @@ OPERATOR_PRIVATE_KEY="your-testnet-operator-private-key"
 npm run make-admin -- you@example.com
 ```
 
-Approve creators after they have signed in and linked their wallets. Use the wallet page's test-money flow (INR 500, once an hour per account) to fund onchain activity; seeded demo balances do not create token balances in the vault. Existing password accounts have no wallet: in onchain mode everyone signs in through Privy, and an account with the same email is linked rather than duplicated.
+Approve creators after they have signed in and linked their wallets. Use the wallet page's test-money flow ($10, once an hour per account) to fund onchain activity; seeded demo balances do not create token balances in the vault. Existing password accounts have no wallet: in onchain mode everyone signs in through Privy, and an account with the same email is linked rather than duplicated.
 
 Every onchain payment in the wallet history links to its receipt on the Monad testnet explorer.
 

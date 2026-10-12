@@ -12,7 +12,7 @@ export default function BecomeCreatorPage() {
   const [channelName, setChannelName] = useState("");
   const [bio, setBio] = useState("");
   const [verificationDocUrl, setVerificationDocUrl] = useState("");
-  const [subPriceRupees, setSubPriceRupees] = useState(49);
+  const [subPriceDollars, setSubPriceDollars] = useState(4.99);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -49,7 +49,7 @@ export default function BecomeCreatorPage() {
         channelName,
         bio,
         verificationDocUrl,
-        subPriceRupees,
+        subPriceDollars,
       });
       await refresh();
       router.push(`/c/${handle}`);
@@ -104,14 +104,15 @@ export default function BecomeCreatorPage() {
           </p>
         </div>
         <div>
-          <label className="label">Monthly subscription price (₹)</label>
+          <label className="label">Monthly subscription price ($)</label>
           <input
             className="input"
             type="number"
             min={0}
-            max={999}
-            value={subPriceRupees}
-            onChange={(e) => setSubPriceRupees(Number(e.target.value))}
+            max={99}
+            step={0.01}
+            value={subPriceDollars}
+            onChange={(e) => setSubPriceDollars(Number(e.target.value))}
           />
         </div>
         {error && <p className="text-sm text-red-400">{error}</p>}

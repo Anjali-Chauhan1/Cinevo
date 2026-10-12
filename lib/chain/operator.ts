@@ -1,7 +1,7 @@
 import { decodeEventLog, encodeAbiParameters, keccak256, toBytes, type Address, type Hex } from "viem";
 import { prisma } from "@/lib/db";
 import { CampaignStatus, LedgerTxType, PRODUCER_UNITS } from "@/lib/constants";
-import { getAddresses, paiseToUnits, toChainId, unitsToPaise } from "@/lib/chain/config";
+import { getAddresses, centsToUnits, toChainId, unitsToCents } from "@/lib/chain/config";
 import { ChainError, eventsFrom, operatorWrite, publicClient } from "@/lib/chain/server";
 import { mirror } from "@/lib/chain/mirror";
 import {
@@ -49,7 +49,7 @@ export async function setSubscriptionPriceOnchain(creatorId: string) {
     address: subscriptions,
     abi: subscriptionsAbi,
     functionName: "setMonthlyPriceFor",
-    args: [address, paiseToUnits(creator.subPriceRupeesPaise)],
+    args: [address, centsToUnits(creator.subPriceCents)],
   });
 }
 
@@ -63,8 +63,8 @@ export async function syncEpisodeOnchain(episodeId: string) {
   const creatorWallet = wallet(episode.creator.user.walletAddress, "The episode's creator");
   const { registry } = getAddresses();
   const key = toChainId(episode.id);
-  const rate = episode.isPaid ? paiseToUnits(episode.rateRupeesPaise) : 0n;
-  const cap = episode.isPaid ? paiseToUnits(episode.capRupeesPaise) : 0n;
+  const rate = episode.isPaid ? centsToUnits(episode.rateCents) : 0n;
+  const cap = episode.isPaid ? centsToUnits(episode.capCents) : 0n;
   const current = await publicClient.readContract({ address: registry, abi: registryAbi, functionName: "getEpisode", args: [key] });
 
   if (!current.exists) {
@@ -119,7 +119,7 @@ export async function createCampaignOnchain(campaignId: string) {
   });
   const creatorWallet = wallet(campaign.creator.user.walletAddress, "This creator");
   const { campaignFactory } = getAddresses();
-  const unitPrice = paiseToUnits(PRODUCER_UNITS.UNIT_PRICE_PAISE);
+  const unitPrice = centsToUnits(PRODUCER_UNITS.UNIT_PRICE_CENTS);
   const receipt = await operatorWrite({
     address: campaignFactory,
     abi: campaignFactoryAbi,
@@ -127,15 +127,15 @@ export async function createCampaignOnchain(campaignId: string) {
     args: [
       creatorWallet,
       {
-        goal: paiseToUnits(campaign.goalPaise),
+        goal: centsToUnits(campaign.goalCents),
         deadline: BigInt(Math.floor(campaign.deadline.getTime() / 1000)),
         deliveryDate: BigInt(Math.floor(campaign.deliveryDate.getTime() / 1000)),
-        tierPrices: campaign.tiers.map((t) => paiseToUnits(t.pricePaise)),
+        tierPrices: campaign.tiers.map((t) => centsToUnits(t.priceCents)),
         tierLimits: campaign.tiers.map((t) => t.backerLimit ?? 0),
         milestoneBps: campaign.milestones.map((m) => m.percentOfGoal * 100),
         unitsEnabled: campaign.producerUnitsEnabled,
         unitPrice,
-        maxUnitSpendPerBacker: paiseToUnits(PRODUCER_UNITS.MAX_PAISE_PER_PERSON_PER_FILM),
+        maxUnitSpendPerBacker: centsToUnits(PRODUCER_UNITS.MAX_CENTS_PER_PERSON_PER_FILM),
         unitHardCap: 0n,
       },
     ],
@@ -149,7 +149,7 @@ export async function createCampaignOnchain(campaignId: string) {
 
 /** Tiers go onchain sorted by price, ties broken by id, so every part of the
  * app agrees which onchain tier index a database tier is. */
-export const CHAIN_TIER_ORDER: { pricePaise?: "asc"; id?: "asc" }[] = [{ pricePaise: "asc" }, { id: "asc" }];
+export const CHAIN_TIER_ORDER: { priceCents?: "asc"; id?: "asc" }[] = [{ priceCents: "asc" }, { id: "asc" }];
 
 /** Onchain tier index for a DB tier. */
 export async function tierIndexOf(campaignId: string, tierId: string): Promise<number> {
@@ -186,9 +186,9 @@ export async function rejectMilestoneOnchain(milestoneId: string, reason: string
 
 /**
  * Releases a milestone onchain and returns what the creator received (in
- * paise), mirrored into the creator's ledger history.
+ * cents), mirrored into the creator's ledger history.
  */
-export async function releaseMilestoneOnchain(milestoneId: string): Promise<{ amountPaise: number; netPaise: number; txHash: string }> {
+export async function releaseMilestoneOnchain(milestoneId: string): Promise<{ amountCents: number; netCents: number; txHash: string }> {
   const milestone = await prisma.milestone.findUniqueOrThrow({
     where: { id: milestoneId },
     include: { campaign: { include: { creator: true } } },
@@ -202,17 +202,17 @@ export async function releaseMilestoneOnchain(milestoneId: string): Promise<{ am
   });
   const event = eventsFrom(receipt, filmCampaignAbi, address).find((e) => e.eventName === "MilestoneReleased");
   const args = (event?.args ?? {}) as { amount?: bigint; toCreator?: bigint };
-  const amountPaise = unitsToPaise(args.amount ?? 0n);
-  const netPaise = unitsToPaise(args.toCreator ?? 0n);
+  const amountCents = unitsToCents(args.amount ?? 0n);
+  const netCents = unitsToCents(args.toCreator ?? 0n);
   await mirror({
     userId: milestone.campaign.creator.userId,
     type: LedgerTxType.MILESTONE_RELEASE_IN,
-    amountPaise: netPaise,
+    amountCents: netCents,
     txHash: receipt.transactionHash,
     refType: "MILESTONE",
     refId: milestone.id,
   });
-  return { amountPaise, netPaise, txHash: receipt.transactionHash };
+  return { amountCents, netCents, txHash: receipt.transactionHash };
 }
 
 /** Applies a deadline/delivery-date transition onchain and returns the onchain state. */
@@ -264,16 +264,16 @@ export async function setInvestorVerifiedOnchain(userId: string) {
 // Money in: the testnet faucet (stands in for a card on-ramp)
 // ---------------------------------------------------------------------------
 
-export async function faucetTopUp(userId: string, amountPaise: number) {
+export async function faucetTopUp(userId: string, amountCents: number) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   const address = wallet(user.walletAddress, "You");
   const receipt = await operatorWrite({
     address: getAddresses().vault,
     abi: vaultAbi,
     functionName: "depositFor",
-    args: [address, paiseToUnits(amountPaise)],
+    args: [address, centsToUnits(amountCents)],
   });
-  await mirror({ userId, type: LedgerTxType.DEPOSIT, amountPaise, txHash: receipt.transactionHash, meta: { source: "testnet faucet" } });
+  await mirror({ userId, type: LedgerTxType.DEPOSIT, amountCents, txHash: receipt.transactionHash, meta: { source: "testnet faucet" } });
   return receipt.transactionHash;
 }
 
@@ -283,7 +283,7 @@ export async function faucetTopUp(userId: string, amountPaise: number) {
 
 /**
  * Submits the session's latest signed voucher to CinovaVault. Returns what
- * was actually charged (in paise) and the tx hash, or null if there was
+ * was actually charged (in cents) and the tx hash, or null if there was
  * nothing signed to settle.
  */
 export async function settleVoucherOnchain(sessionId: string) {
@@ -306,7 +306,7 @@ export async function settleVoucherOnchain(sessionId: string) {
     encodeAbiParameters([{ type: "address" }, { type: "bytes32" }, { type: "bytes32" }], [voucher.viewer, voucher.episodeId, voucher.sessionId])
   );
   const settled = await publicClient.readContract({ address: vault, abi: vaultAbi, functionName: "sessionSettled", args: [key] });
-  if (settled >= voucher.cumulativeAmount) return { paidPaise: 0, txHash: null as string | null };
+  if (settled >= voucher.cumulativeAmount) return { paidCents: 0, txHash: null as string | null };
 
   const receipt = await operatorWrite({
     address: vault,
@@ -316,12 +316,12 @@ export async function settleVoucherOnchain(sessionId: string) {
   });
   const event = eventsFrom(receipt, vaultAbi, vault).find((e) => e.eventName === "Settled");
   const args = (event?.args ?? {}) as { amount?: bigint; toCreator?: bigint };
-  const paidPaise = unitsToPaise(args.amount ?? 0n);
-  const toCreatorPaise = unitsToPaise(args.toCreator ?? 0n);
+  const paidCents = unitsToCents(args.amount ?? 0n);
+  const toCreatorCents = unitsToCents(args.toCreator ?? 0n);
   await mirror({
     userId: session.viewerId,
     type: LedgerTxType.VOUCHER_SETTLE,
-    amountPaise: -paidPaise,
+    amountCents: -paidCents,
     txHash: receipt.transactionHash,
     refType: "EPISODE",
     refId: session.episodeId,
@@ -330,12 +330,12 @@ export async function settleVoucherOnchain(sessionId: string) {
   await mirror({
     userId: session.episode.creator.userId,
     type: LedgerTxType.VOUCHER_SETTLE,
-    amountPaise: toCreatorPaise,
+    amountCents: toCreatorCents,
     txHash: receipt.transactionHash,
     refType: "EPISODE",
     refId: session.episodeId,
   });
-  return { paidPaise, txHash: receipt.transactionHash as string };
+  return { paidCents, txHash: receipt.transactionHash as string };
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +383,7 @@ export async function mirrorSubscriptionCharges(txHash: string, logs: readonly {
     if (decoded.eventName !== "Charged") continue;
     const sub = await prisma.subscription.findUniqueOrThrow({ where: { id: subscriptionId }, include: { creator: true } });
     const { amount, toCreator } = decoded.args as { amount: bigint; toCreator: bigint };
-    await mirror({ userId: sub.fanId, type: LedgerTxType.SUB_STREAM_OUT, amountPaise: -unitsToPaise(amount), txHash, refType: "SUBSCRIPTION", refId: sub.id });
-    await mirror({ userId: sub.creator.userId, type: LedgerTxType.SUB_STREAM_IN, amountPaise: unitsToPaise(toCreator), txHash, refType: "SUBSCRIPTION", refId: sub.id });
+    await mirror({ userId: sub.fanId, type: LedgerTxType.SUB_STREAM_OUT, amountCents: -unitsToCents(amount), txHash, refType: "SUBSCRIPTION", refId: sub.id });
+    await mirror({ userId: sub.creator.userId, type: LedgerTxType.SUB_STREAM_IN, amountCents: unitsToCents(toCreator), txHash, refType: "SUBSCRIPTION", refId: sub.id });
   }
 }

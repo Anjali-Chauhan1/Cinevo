@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireCreator, ForbiddenError } from "@/lib/auth";
 import { ok, withApiErrors } from "@/lib/api";
-import { hypeLevelsSchema, rupeesToPaiseInt } from "@/lib/validation";
+import { hypeLevelsSchema, dollarsToCents } from "@/lib/validation";
 import { EpisodeStatus } from "@/lib/constants";
 
 /**
@@ -23,7 +23,7 @@ export const PUT = withApiErrors(async (req: NextRequest, { params }: { params: 
     episodeId: episode.id,
     level: i + 1,
     goalType: l.goalType,
-    goalValue: l.goalType === "TIPS" ? rupeesToPaiseInt(l.goalValue) : Math.round(l.goalValue),
+    goalValue: l.goalType === "TIPS" ? dollarsToCents(l.goalValue) : Math.round(l.goalValue),
     unlockTitle: l.unlockTitle,
     unlockAssetUrl: l.unlockAssetUrl || null,
   }));

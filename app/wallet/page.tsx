@@ -4,15 +4,15 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { api, ApiError } from "@/lib/client-api";
-import { paise, relativeTime } from "@/lib/format";
+import { money, relativeTime } from "@/lib/format";
 import type { Address } from "viem";
 import { useOnchain } from "@/components/web3/Onchain";
-import { paiseToUnits } from "@/lib/chain/config";
+import { centsToUnits } from "@/lib/chain/config";
 import { vaultAbi } from "@/lib/chain/abis";
 
 interface WalletData {
-  account: { balancePaise: number; pendingWithdrawPaise: number; withdrawRequestedAt: string | null };
-  transactions: Array<{ id: string; type: string; amountPaise: number; createdAt: string; explorerUrl?: string | null }>;
+  account: { balanceCents: number; pendingWithdrawCents: number; withdrawRequestedAt: string | null };
+  transactions: Array<{ id: string; type: string; amountCents: number; createdAt: string; explorerUrl?: string | null }>;
   activeSubscriptions: Array<{ creatorId: string; creator: { handle: string; channelName: string } }>;
   backerPasses: Array<{ id: string; tierName: string; campaign: { filmTitle: string } }>;
   // Onchain mode only.
@@ -20,7 +20,7 @@ interface WalletData {
     walletAddress: Address;
     vaultAddress: Address;
     withdrawReadyAt: string | null;
-    faucetPaise: number;
+    faucetCents: number;
     nextFaucetAt: string | null;
   } | null;
 }
@@ -28,8 +28,8 @@ interface WalletData {
 export default function WalletPage() {
   const { user, loading, refresh } = useAuth();
   const [data, setData] = useState<WalletData | null>(null);
-  const [depositAmount, setDepositAmount] = useState(500);
-  const [withdrawAmount, setWithdrawAmount] = useState(100);
+  const [depositAmount, setDepositAmount] = useState(10);
+  const [withdrawAmount, setWithdrawAmount] = useState(5);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -73,8 +73,8 @@ export default function WalletPage() {
 
   async function getTestMoney() {
     await run(async () => {
-      const res = await api.post<{ amountPaise: number }>("/api/wallet/faucet");
-      setNotice(`${paise(res.amountPaise)} of test money added.`);
+      const res = await api.post<{ amountCents: number }>("/api/wallet/faucet");
+      setNotice(`${money(res.amountCents)} of test money added.`);
     }, "Couldn't add test money");
   }
 
@@ -82,7 +82,7 @@ export default function WalletPage() {
     await run(async () => {
       const txHash =
         kind === "request"
-          ? await vaultCall("requestWithdraw", [paiseToUnits(withdrawAmount * 100)])
+          ? await vaultCall("requestWithdraw", [centsToUnits(withdrawAmount * 100)])
           : await vaultCall(kind === "complete" ? "withdraw" : "cancelWithdraw");
       await api.post(`/api/wallet/withdraw/${kind}`, { txHash });
     }, "Withdrawal failed");
@@ -92,7 +92,7 @@ export default function WalletPage() {
     setBusy(true);
     setError(null);
     try {
-      await api.post("/api/wallet/deposit", { amountRupees: depositAmount });
+      await api.post("/api/wallet/deposit", { amountDollars: depositAmount });
       await load();
       await refresh();
     } catch (err) {
@@ -106,7 +106,7 @@ export default function WalletPage() {
     setBusy(true);
     setError(null);
     try {
-      await api.post("/api/wallet/withdraw/request", { amountRupees: withdrawAmount });
+      await api.post("/api/wallet/withdraw/request", { amountDollars: withdrawAmount });
       await load();
       await refresh();
     } catch (err) {
@@ -155,16 +155,16 @@ export default function WalletPage() {
         <h1 className="font-serif text-2xl font-bold">Wallet</h1>
         <p className="mt-1 text-xs text-[var(--text-dim)]">
           {onchain
-            ? "Settles in a USD stablecoin on Monad testnet — you only ever see rupees. Test money has no real value."
-            : "Settles in a demo USD-pegged stablecoin behind the scenes — you only ever see rupees."}
+            ? "Settles in a USD stablecoin on Monad testnet, one to one with the dollars you see. Test money has no real value."
+            : "Demo balance: no real money moves."}
         </p>
 
         <div className="card mt-6 p-6">
           <div className="text-sm text-[var(--text-dim)]">Balance</div>
-          <div className="font-serif text-3xl font-bold">{paise(account.balancePaise)}</div>
-          {account.pendingWithdrawPaise > 0 && (
+          <div className="font-serif text-3xl font-bold">{money(account.balanceCents)}</div>
+          {account.pendingWithdrawCents > 0 && (
             <div className="mt-2 text-xs text-yellow-400">
-              {paise(account.pendingWithdrawPaise)} locked for withdrawal
+              {money(account.pendingWithdrawCents)} locked for withdrawal
               {readyAt && !withdrawReady && ` — unlocks ${relativeTime(readyAt)}`}
             </div>
           )}
@@ -192,9 +192,9 @@ export default function WalletPage() {
                   )}
                 </div>
               </div>
-              <span className={t.amountPaise >= 0 ? "text-emerald-400" : "text-[var(--text-dim)]"}>
-                {t.amountPaise >= 0 ? "+" : ""}
-                {paise(t.amountPaise)}
+              <span className={t.amountCents >= 0 ? "text-emerald-400" : "text-[var(--text-dim)]"}>
+                {t.amountCents >= 0 ? "+" : ""}
+                {money(t.amountCents)}
               </span>
             </div>
           ))}
@@ -209,7 +209,7 @@ export default function WalletPage() {
               On testnet, top-ups are free test money. In production this is a card or UPI payment.
             </p>
             <button className="btn-primary mt-3 w-full" onClick={getTestMoney} disabled={busy || !!onchain.nextFaucetAt}>
-              {onchain.nextFaucetAt ? `Available again ${relativeTime(onchain.nextFaucetAt)}` : `Get ${paise(onchain.faucetPaise)} of test money`}
+              {onchain.nextFaucetAt ? `Available again ${relativeTime(onchain.nextFaucetAt)}` : `Get ${money(onchain.faucetCents)} of test money`}
             </button>
             <p className="mt-3 break-all text-[11px] text-[var(--text-dim)]">Account: {onchain.walletAddress}</p>
           </div>
@@ -217,13 +217,13 @@ export default function WalletPage() {
           <div className="card p-4">
             <h3 className="mb-2 font-medium">Top up (demo)</h3>
             <input className="input" type="number" min={1} value={depositAmount} onChange={(e) => setDepositAmount(Number(e.target.value))} />
-            <button className="btn-primary mt-2 w-full" onClick={deposit} disabled={busy}>Add ₹{depositAmount}</button>
+            <button className="btn-primary mt-2 w-full" onClick={deposit} disabled={busy}>Add ${depositAmount}</button>
           </div>
         )}
 
         <div className="card p-4">
           <h3 className="mb-2 font-medium">Withdraw</h3>
-          {account.pendingWithdrawPaise > 0 ? (
+          {account.pendingWithdrawCents > 0 ? (
             <div className="space-y-2">
               <button
                 className="btn-primary w-full"

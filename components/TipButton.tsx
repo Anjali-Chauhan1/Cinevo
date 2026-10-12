@@ -5,10 +5,10 @@ import { keccak256, toBytes, zeroHash, type Address } from "viem";
 import { api, ApiError } from "@/lib/client-api";
 import { useAuth } from "@/components/AuthProvider";
 import { useOnchain } from "@/components/web3/Onchain";
-import { getAddresses, paiseToUnits, toChainId } from "@/lib/chain/config";
+import { getAddresses, centsToUnits, toChainId } from "@/lib/chain/config";
 import { tipsAbi } from "@/lib/chain/abis";
 
-const PRESETS = [10, 50, 100, 500];
+const PRESETS = [1, 2, 5, 10];
 
 export function TipButton({
   creatorId,
@@ -20,7 +20,7 @@ export function TipButton({
   onSent?: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [amount, setAmount] = useState(50);
+  const [amount, setAmount] = useState(5);
   const [message, setMessage] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -41,11 +41,11 @@ export function TipButton({
       args: [
         creatorWallet,
         episodeId ? toChainId(episodeId) : zeroHash,
-        paiseToUnits(amount * 100),
+        centsToUnits(Math.round(amount * 100)),
         message.trim() ? keccak256(toBytes(message.trim())) : zeroHash,
       ],
     });
-    await api.post("/api/tips", { creatorId, episodeId, amountRupees: amount, message, txHash });
+    await api.post("/api/tips", { creatorId, episodeId, amountDollars: amount, message, txHash });
   }
 
   async function send() {
@@ -53,7 +53,7 @@ export function TipButton({
     setError(null);
     try {
       if (chain.enabled) await sendOnchain();
-      else await api.post("/api/tips", { creatorId, episodeId, amountRupees: amount, message });
+      else await api.post("/api/tips", { creatorId, episodeId, amountDollars: amount, message });
       setSent(true);
       onSent?.();
       setTimeout(() => {
@@ -92,14 +92,15 @@ export function TipButton({
                 onClick={() => setAmount(p)}
                 className={`btn-secondary flex-1 !px-2 !py-1 text-xs ${amount === p ? "border-[var(--accent)] text-[var(--accent)]" : ""}`}
               >
-                ₹{p}
+                ${p}
               </button>
             ))}
           </div>
           <input
             className="input mt-2"
             type="number"
-            min={10}
+            min={1}
+            step={0.5}
             value={amount}
             onChange={(e) => setAmount(Number(e.target.value))}
           />
@@ -113,7 +114,7 @@ export function TipButton({
           {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
           <div className="mt-2 flex gap-2">
             <button className="btn-primary flex-1" onClick={send} disabled={busy}>
-              Send ₹{amount}
+              Send ${amount}
             </button>
             <button className="btn-secondary" onClick={() => setOpen(false)}>Cancel</button>
           </div>

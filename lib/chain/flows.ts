@@ -25,12 +25,12 @@ export async function settleSessionOnchainFlow(sessionId: string) {
   const session = await prisma.watchSession.findUniqueOrThrow({ where: { id: sessionId } });
   if (session.status !== WatchSessionStatus.ACTIVE) return session;
 
-  let paidPaise = 0;
+  let paidCents = 0;
   let txHash: string | null = null;
   if (session.freeReason === FreeReason.NONE && session.voucherSignature) {
     try {
       const result = await settleVoucherOnchain(session.id);
-      paidPaise = result?.paidPaise ?? 0;
+      paidCents = result?.paidCents ?? 0;
       txHash = result?.txHash ?? null;
     } catch (err) {
       // A racing settle (viewer pressed stop while the sweep ran) already
@@ -44,7 +44,7 @@ export async function settleSessionOnchainFlow(sessionId: string) {
     where: { id: session.id, status: WatchSessionStatus.ACTIVE },
     data: {
       status: WatchSessionStatus.SETTLED,
-      settledAmountPaise: paidPaise,
+      settledAmountCents: paidCents,
       settledAt: new Date(),
       settleTxHash: txHash,
     },
@@ -52,12 +52,12 @@ export async function settleSessionOnchainFlow(sessionId: string) {
   if (closed.count === 1) {
     const access = await prisma.episodeAccess.upsert({
       where: { viewerId_episodeId: { viewerId: session.viewerId, episodeId: session.episodeId } },
-      create: { viewerId: session.viewerId, episodeId: session.episodeId, totalPaidPaise: paidPaise, secondsWatched: session.secondsWatched },
-      update: { totalPaidPaise: { increment: paidPaise }, secondsWatched: { increment: session.secondsWatched } },
+      create: { viewerId: session.viewerId, episodeId: session.episodeId, totalPaidCents: paidCents, secondsWatched: session.secondsWatched },
+      update: { totalPaidCents: { increment: paidCents }, secondsWatched: { increment: session.secondsWatched } },
     });
-    // The chain stops charging at the cap; paise rounding can leave us a
+    // The chain stops charging at the cap; cents rounding can leave us a
     // paisa short of the off-chain cap figure, hence the tolerance.
-    if (session.freeReason === FreeReason.NONE && access.totalPaidPaise >= session.capRupeesPaiseSnapshot - 1 && !access.capReached) {
+    if (session.freeReason === FreeReason.NONE && access.totalPaidCents >= session.capCentsSnapshot - 1 && !access.capReached) {
       await prisma.episodeAccess.update({ where: { id: access.id }, data: { capReached: true } });
     }
   }
@@ -69,11 +69,11 @@ export async function approveMilestoneOnchainFlow(adminUserId: string, milestone
   const milestone = await prisma.milestone.findUniqueOrThrow({ where: { id: milestoneId } });
   if (milestone.status !== MilestoneStatus.SUBMITTED) throw new ChainError("Only submitted milestones can be approved");
 
-  const { amountPaise } = await releaseMilestoneOnchain(milestoneId);
-  await prisma.campaign.update({ where: { id: milestone.campaignId }, data: { totalReleasedPaise: { increment: amountPaise } } });
+  const { amountCents } = await releaseMilestoneOnchain(milestoneId);
+  await prisma.campaign.update({ where: { id: milestone.campaignId }, data: { totalReleasedCents: { increment: amountCents } } });
   const updated = await prisma.milestone.update({
     where: { id: milestoneId },
-    data: { status: MilestoneStatus.RELEASED, releasedAmountPaise: amountPaise, reviewedAt: new Date(), reviewedBy: adminUserId },
+    data: { status: MilestoneStatus.RELEASED, releasedAmountCents: amountCents, reviewedAt: new Date(), reviewedBy: adminUserId },
   });
   const all = await prisma.milestone.findMany({ where: { campaignId: milestone.campaignId } });
   if (all.every((m) => m.status === MilestoneStatus.RELEASED)) {

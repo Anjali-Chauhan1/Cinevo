@@ -17,8 +17,8 @@ export const POST = withApiErrors(async () => {
   });
   if (claimed.count === 0) return ok({ error: "You can get test money once an hour" }, 429);
   try {
-    const txHash = await faucetTopUp(user.id, FAUCET.AMOUNT_PAISE);
-    return ok({ amountPaise: FAUCET.AMOUNT_PAISE, txHash, explorerUrl: explorerTxUrl(txHash) });
+    const txHash = await faucetTopUp(user.id, FAUCET.AMOUNT_CENTS);
+    return ok({ amountCents: FAUCET.AMOUNT_CENTS, txHash, explorerUrl: explorerTxUrl(txHash) });
   } catch (err) {
     await prisma.user.update({ where: { id: user.id }, data: { lastFaucetAt: user.lastFaucetAt } });
     throw err;

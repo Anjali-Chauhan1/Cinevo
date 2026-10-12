@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { getOrCreateLedgerAccountId, transferWithFee } from "@/lib/ledger/core";
 import { PLATFORM_FEE_BPS, LedgerTxType } from "@/lib/constants";
 
-const RATE_SCALE = 1_000_000; // ratePerSecond is stored scaled by 1e6 for sub-paise precision
+const RATE_SCALE = 1_000_000; // ratePerSecond is stored scaled by 1e6 for sub-cents precision
 const SECONDS_PER_MONTH = 30 * 24 * 60 * 60;
 
 export class SubscriptionError extends Error {
@@ -12,8 +12,8 @@ export class SubscriptionError extends Error {
   }
 }
 
-function ratePerSecondScaled(monthlyPricePaise: number): number {
-  return Math.round((monthlyPricePaise * RATE_SCALE) / SECONDS_PER_MONTH);
+function ratePerSecondScaled(monthlyPriceCents: number): number {
+  return Math.round((monthlyPriceCents * RATE_SCALE) / SECONDS_PER_MONTH);
 }
 
 /**
@@ -29,7 +29,7 @@ async function touchSubscription(
     id: string;
     fanId: string;
     creatorId: string;
-    ratePerSecondPaiseScaled: number;
+    ratePerSecondCentsScaled: number;
     lastAccruedAt: Date;
     active: boolean;
   }
@@ -43,12 +43,12 @@ async function touchSubscription(
   );
   if (elapsedSeconds === 0) return subscription;
 
-  const owedPaise = Math.floor(
-    (elapsedSeconds * subscription.ratePerSecondPaiseScaled) / RATE_SCALE
+  const owedCents = Math.floor(
+    (elapsedSeconds * subscription.ratePerSecondCentsScaled) / RATE_SCALE
   );
-  if (owedPaise === 0) {
-    // Not enough elapsed time to owe a whole paise yet — advance the clock a
-    // little so we don't re-derive the same sub-paise remainder forever, but
+  if (owedCents === 0) {
+    // Not enough elapsed time to owe a whole cents yet — advance the clock a
+    // little so we don't re-derive the same sub-cents remainder forever, but
     // only by what we've actually "spent" of it (none, here).
     return subscription;
   }
@@ -57,15 +57,15 @@ async function touchSubscription(
   const creatorUser = await tx.creator.findUniqueOrThrow({ where: { id: subscription.creatorId } });
   const creatorAccountId = await getOrCreateLedgerAccountId(tx, creatorUser.userId);
   const fanAccount = await tx.ledgerAccount.findUniqueOrThrow({ where: { id: fanAccountId } });
-  const freeBalance = fanAccount.balancePaise - fanAccount.pendingWithdrawPaise;
+  const freeBalance = fanAccount.balanceCents - fanAccount.pendingWithdrawCents;
 
-  const chargeable = Math.min(owedPaise, Math.max(freeBalance, 0));
+  const chargeable = Math.min(owedCents, Math.max(freeBalance, 0));
 
   if (chargeable > 0) {
     await transferWithFee(tx, {
       fromAccountId: fanAccountId,
       toAccountId: creatorAccountId,
-      totalAmountPaise: chargeable,
+      totalAmountCents: chargeable,
       feeBps: PLATFORM_FEE_BPS,
       debitType: LedgerTxType.SUB_STREAM_OUT,
       creditType: LedgerTxType.SUB_STREAM_IN,
@@ -75,7 +75,7 @@ async function touchSubscription(
     });
   }
 
-  const insufficientFunds = chargeable < owedPaise;
+  const insufficientFunds = chargeable < owedCents;
   return tx.subscription.update({
     where: { id: subscription.id },
     data: {
@@ -99,11 +99,11 @@ export async function subscribe(fanId: string, creatorId: string) {
       where: { fanId_creatorId: { fanId, creatorId } },
     });
 
-    const rate = ratePerSecondScaled(creator.subPriceRupeesPaise);
+    const rate = ratePerSecondScaled(creator.subPriceCents);
 
     if (!existing) {
       return tx.subscription.create({
-        data: { fanId, creatorId, ratePerSecondPaiseScaled: rate, active: true },
+        data: { fanId, creatorId, ratePerSecondCentsScaled: rate, active: true },
       });
     }
 
@@ -118,7 +118,7 @@ export async function subscribe(fanId: string, creatorId: string) {
         cancelledAt: null,
         pausedForLowBalance: false,
         lastAccruedAt: new Date(),
-        ratePerSecondPaiseScaled: rate,
+        ratePerSecondCentsScaled: rate,
       },
     });
   });

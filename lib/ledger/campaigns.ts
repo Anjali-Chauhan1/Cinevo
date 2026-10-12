@@ -17,6 +17,7 @@ import {
   NotificationType,
 } from "@/lib/constants";
 import { notify, notifyMany, campaignBackerIds } from "@/lib/notifications";
+import { money } from "@/lib/format";
 
 export class CampaignError extends Error {
   constructor(message: string) {
@@ -35,15 +36,15 @@ export async function createCampaign(
     filmTitle: string;
     pitch?: string;
     pitchVideoUrl?: string;
-    goalPaise: number;
+    goalCents: number;
     deadline: Date;
     deliveryDate: Date;
     producerUnitsEnabled: boolean;
-    tiers: { name: string; pricePaise: number; perks: string[]; backerLimit?: number }[];
+    tiers: { name: string; priceCents: number; perks: string[]; backerLimit?: number }[];
     milestones: { label: string; percentOfGoal: number }[];
   }
 ) {
-  if (input.goalPaise <= 0) throw new CampaignError("Goal must be positive");
+  if (input.goalCents <= 0) throw new CampaignError("Goal must be positive");
   if (input.deadline <= new Date()) throw new CampaignError("Deadline must be in the future");
   if (input.deliveryDate <= input.deadline) {
     throw new CampaignError("Delivery date must be after the fundraising deadline");
@@ -61,14 +62,14 @@ export async function createCampaign(
         filmTitle: input.filmTitle,
         pitch: input.pitch,
         pitchVideoUrl: input.pitchVideoUrl,
-        goalPaise: input.goalPaise,
+        goalCents: input.goalCents,
         deadline: input.deadline,
         deliveryDate: input.deliveryDate,
         producerUnitsEnabled: input.producerUnitsEnabled,
         tiers: {
           create: input.tiers.map((t) => ({
             name: t.name,
-            pricePaise: t.pricePaise,
+            priceCents: t.priceCents,
             perks: JSON.stringify(t.perks),
             backerLimit: t.backerLimit,
           })),
@@ -96,7 +97,7 @@ export async function backCampaign(
   campaignId: string,
   input:
     | { type: "PERK"; tierId: string; riskAcknowledged: boolean }
-    | { type: "PRODUCER_UNIT"; amountPaise: number; riskAcknowledged: boolean }
+    | { type: "PRODUCER_UNIT"; amountCents: number; riskAcknowledged: boolean }
 ) {
   if (!input.riskAcknowledged) {
     throw new CampaignError("You must acknowledge the backing risk before continuing");
@@ -113,7 +114,7 @@ export async function backCampaign(
       throw new CampaignError("This campaign's deadline has passed");
     }
 
-    let amountPaise: number;
+    let amountCents: number;
     let tierId: string | null = null;
     let unitsGranted = 0;
 
@@ -123,7 +124,7 @@ export async function backCampaign(
       if (tier.backerLimit !== null && tier.backedCount >= tier.backerLimit) {
         throw new CampaignError("This tier is sold out");
       }
-      amountPaise = tier.pricePaise;
+      amountCents = tier.priceCents;
       tierId = tier.id;
       await tx.campaignTier.update({ where: { id: tier.id }, data: { backedCount: { increment: 1 } } });
     } else {
@@ -140,26 +141,26 @@ export async function backCampaign(
       if (user.kycStatus !== KycStatus.VERIFIED) {
         throw new CampaignError("Producer Units require KYC verification first");
       }
-      if (input.amountPaise <= 0) throw new CampaignError("Amount must be positive");
-      if (input.amountPaise % PRODUCER_UNITS.UNIT_PRICE_PAISE !== 0) {
+      if (input.amountCents <= 0) throw new CampaignError("Amount must be positive");
+      if (input.amountCents % PRODUCER_UNITS.UNIT_PRICE_CENTS !== 0) {
         throw new CampaignError(
-          `Producer Unit purchases must be in multiples of ${PRODUCER_UNITS.UNIT_PRICE_PAISE / 100} rupees`
+          `Producer Unit purchases must be in multiples of ${money(PRODUCER_UNITS.UNIT_PRICE_CENTS)}`
         );
       }
 
       const existingForUser = await tx.backing.aggregate({
         where: { campaignId, userId, type: BackingType.PRODUCER_UNIT, status: BackingStatus.ACTIVE },
-        _sum: { amountPaise: true },
+        _sum: { amountCents: true },
       });
-      const alreadyCommitted = existingForUser._sum.amountPaise ?? 0;
-      if (alreadyCommitted + input.amountPaise > PRODUCER_UNITS.MAX_PAISE_PER_PERSON_PER_FILM) {
+      const alreadyCommitted = existingForUser._sum.amountCents ?? 0;
+      if (alreadyCommitted + input.amountCents > PRODUCER_UNITS.MAX_CENTS_PER_PERSON_PER_FILM) {
         throw new CampaignError(
-          `Producer Units are capped at ${PRODUCER_UNITS.MAX_PAISE_PER_PERSON_PER_FILM / 100} rupees per person per film`
+          `Producer Units are capped at ${money(PRODUCER_UNITS.MAX_CENTS_PER_PERSON_PER_FILM)} per person per film`
         );
       }
 
-      amountPaise = input.amountPaise;
-      unitsGranted = amountPaise / PRODUCER_UNITS.UNIT_PRICE_PAISE;
+      amountCents = input.amountCents;
+      unitsGranted = amountCents / PRODUCER_UNITS.UNIT_PRICE_CENTS;
     }
 
     const payerAccountId = await getOrCreateLedgerAccountId(tx, userId);
@@ -171,7 +172,7 @@ export async function backCampaign(
         userId,
         tierId,
         type: input.type,
-        amountPaise,
+        amountCents,
         unitsGranted,
         riskAcknowledged: true,
         riskAcknowledgedAt: new Date(),
@@ -181,15 +182,15 @@ export async function backCampaign(
     // Debit the backer, hold the funds in the platform's escrow pool — NOT
     // paid to the creator yet. This is the application-layer stand-in for
     // "money goes into the film's escrow, never directly to the creator."
-    await debit(tx, payerAccountId, amountPaise, LedgerTxType.BACKING_OUT, "CAMPAIGN", campaignId);
-    await credit(tx, platformAccountId, amountPaise, LedgerTxType.ESCROW_HOLD_IN, "CAMPAIGN", campaignId);
+    await debit(tx, payerAccountId, amountCents, LedgerTxType.BACKING_OUT, "CAMPAIGN", campaignId);
+    await credit(tx, platformAccountId, amountCents, LedgerTxType.ESCROW_HOLD_IN, "CAMPAIGN", campaignId);
 
     const updatedCampaign = await tx.campaign.update({
       where: { id: campaignId },
       data: {
-        totalBackedPaise: { increment: amountPaise },
+        totalBackedCents: { increment: amountCents },
         ...(input.type === "PRODUCER_UNIT"
-          ? { totalUnits: { increment: unitsGranted }, unitsRaisedPaise: { increment: amountPaise } }
+          ? { totalUnits: { increment: unitsGranted }, unitsRaisedCents: { increment: amountCents } }
           : {}),
       },
     });
@@ -275,7 +276,7 @@ export async function submitMilestoneProof(
 /**
  * Admin-approved milestone release (MVP control, per the design doc — a
  * backer vote is the documented roadmap replacement). Releases this
- * milestone's percentage of the FINAL totalBackedPaise (frozen once the
+ * milestone's percentage of the FINAL totalBackedCents (frozen once the
  * campaign left ACTIVE), fee-adjusted 90/10 creator/platform, from the
  * escrow pool held in the platform account.
  */
@@ -290,9 +291,9 @@ export async function approveMilestone(adminUserId: string, milestoneId: string)
     }
 
     const grossRelease = Math.round(
-      (milestone.campaign.totalBackedPaise * milestone.percentOfGoal) / 100
+      (milestone.campaign.totalBackedCents * milestone.percentOfGoal) / 100
     );
-    const remainingEscrow = milestone.campaign.totalBackedPaise - milestone.campaign.totalReleasedPaise;
+    const remainingEscrow = milestone.campaign.totalBackedCents - milestone.campaign.totalReleasedCents;
     const release = Math.min(grossRelease, remainingEscrow); // rounding-safety clamp
 
     const platformAccountId = await getPlatformAccountId(tx);
@@ -311,14 +312,14 @@ export async function approveMilestone(adminUserId: string, milestoneId: string)
 
     await tx.campaign.update({
       where: { id: milestone.campaignId },
-      data: { totalReleasedPaise: { increment: release } },
+      data: { totalReleasedCents: { increment: release } },
     });
 
     const updatedMilestone = await tx.milestone.update({
       where: { id: milestoneId },
       data: {
         status: MilestoneStatus.RELEASED,
-        releasedAmountPaise: release,
+        releasedAmountCents: release,
         reviewedAt: new Date(),
         reviewedBy: adminUserId,
       },
@@ -360,7 +361,7 @@ export async function sweepCampaignDeadlines() {
     where: { status: CampaignStatus.ACTIVE, deadline: { lte: now } },
   });
   for (const c of expiredActive) {
-    const met = c.totalBackedPaise >= c.goalPaise;
+    const met = c.totalBackedCents >= c.goalCents;
     await prisma.campaign.update({
       where: { id: c.id },
       data: { status: met ? CampaignStatus.FUNDED_PRODUCING : CampaignStatus.FAILED_REFUNDING },
@@ -436,10 +437,10 @@ export async function claimRefund(userId: string, campaignId: string) {
     if (!backing) throw new CampaignError("You have no active backing to refund on this campaign");
 
     const unreleasedFraction =
-      campaign.totalBackedPaise > 0
-        ? (campaign.totalBackedPaise - campaign.totalReleasedPaise) / campaign.totalBackedPaise
+      campaign.totalBackedCents > 0
+        ? (campaign.totalBackedCents - campaign.totalReleasedCents) / campaign.totalBackedCents
         : 0;
-    const refundAmount = Math.round(backing.amountPaise * unreleasedFraction);
+    const refundAmount = Math.round(backing.amountCents * unreleasedFraction);
 
     const platformAccountId = await getPlatformAccountId(tx);
     const backerAccountId = await getOrCreateLedgerAccountId(tx, userId);
@@ -491,7 +492,7 @@ export async function claimRefund(userId: string, campaignId: string) {
 export async function distributeFilmRevenue(
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
   campaignId: string,
-  grossAmountPaise: number,
+  grossAmountCents: number,
   creatorAccountId: string,
   refType: string,
   refId: string
@@ -501,27 +502,27 @@ export async function distributeFilmRevenue(
 
   if (campaign.totalUnits <= 0) {
     // No units outstanding (e.g. all refunded) — fall back to the plain split.
-    const fee = Math.round((grossAmountPaise * PLATFORM_FEE_BPS) / 10000);
-    const net = grossAmountPaise - fee;
+    const fee = Math.round((grossAmountCents * PLATFORM_FEE_BPS) / 10000);
+    const net = grossAmountCents - fee;
     await credit(tx, creatorAccountId, net, LedgerTxType.VOUCHER_SETTLE, refType, refId);
     await credit(tx, platformAccountId, fee, LedgerTxType.PLATFORM_FEE_IN, refType, refId);
-    return { creatorPaise: net, platformPaise: fee, unitsPaise: 0 };
+    return { creatorCents: net, platformCents: fee, unitsCents: 0 };
   }
 
   const recoupThreshold = Math.round(
-    (campaign.unitsRaisedPaise * PRODUCER_UNITS.RECOUP_MULTIPLIER_BPS) / 10000
+    (campaign.unitsRaisedCents * PRODUCER_UNITS.RECOUP_MULTIPLIER_BPS) / 10000
   );
-  const alreadyToUnits = campaign.revenueToUnitsPaise;
+  const alreadyToUnits = campaign.revenueToUnitsCents;
 
   const splitAt = (amount: number, unitsBps: number, creatorBps: number, platformBps: number) => {
-    const unitsPaise = Math.round((amount * unitsBps) / 10000);
-    const platformPaise = Math.round((amount * platformBps) / 10000);
-    const creatorPaise = amount - unitsPaise - platformPaise; // dust -> creator
-    return { unitsPaise, creatorPaise, platformPaise };
+    const unitsCents = Math.round((amount * unitsBps) / 10000);
+    const platformCents = Math.round((amount * platformBps) / 10000);
+    const creatorCents = amount - unitsCents - platformCents; // dust -> creator
+    return { unitsCents, creatorCents, platformCents };
   };
 
   let stage1Amount = 0;
-  let stage2Amount = grossAmountPaise;
+  let stage2Amount = grossAmountCents;
 
   if (alreadyToUnits < recoupThreshold) {
     // How much gross revenue keeps the units' 50% share within the
@@ -530,8 +531,8 @@ export async function distributeFilmRevenue(
     const stage1Capacity = Math.floor(
       (roomUnderThreshold * 10000) / PRODUCER_UNITS.STAGE1_UNITS_BPS
     );
-    stage1Amount = Math.min(grossAmountPaise, stage1Capacity);
-    stage2Amount = grossAmountPaise - stage1Amount;
+    stage1Amount = Math.min(grossAmountCents, stage1Capacity);
+    stage2Amount = grossAmountCents - stage1Amount;
   }
 
   const s1 = splitAt(
@@ -547,33 +548,33 @@ export async function distributeFilmRevenue(
     PRODUCER_UNITS.STAGE2_PLATFORM_BPS
   );
 
-  const unitsPaise = s1.unitsPaise + s2.unitsPaise;
-  const creatorPaise = s1.creatorPaise + s2.creatorPaise;
-  const platformPaise = s1.platformPaise + s2.platformPaise;
+  const unitsCents = s1.unitsCents + s2.unitsCents;
+  const creatorCents = s1.creatorCents + s2.creatorCents;
+  const platformCents = s1.platformCents + s2.platformCents;
 
-  await credit(tx, creatorAccountId, creatorPaise, LedgerTxType.VOUCHER_SETTLE, refType, refId);
-  await credit(tx, platformAccountId, platformPaise, LedgerTxType.PLATFORM_FEE_IN, refType, refId);
+  await credit(tx, creatorAccountId, creatorCents, LedgerTxType.VOUCHER_SETTLE, refType, refId);
+  await credit(tx, platformAccountId, platformCents, LedgerTxType.PLATFORM_FEE_IN, refType, refId);
 
-  if (unitsPaise > 0) {
-    await credit(tx, platformAccountId, unitsPaise, LedgerTxType.REVENUE_POOL_HOLD, "CAMPAIGN", campaignId);
-    const accDelta = Math.floor((unitsPaise * 1_000_000) / campaign.totalUnits);
+  if (unitsCents > 0) {
+    await credit(tx, platformAccountId, unitsCents, LedgerTxType.REVENUE_POOL_HOLD, "CAMPAIGN", campaignId);
+    const accDelta = Math.floor((unitsCents * 1_000_000) / campaign.totalUnits);
     const updated = await tx.campaign.update({
       where: { id: campaignId },
       data: {
-        revenueToUnitsPaise: { increment: unitsPaise },
+        revenueToUnitsCents: { increment: unitsCents },
         accRevenuePerUnitScaled: { increment: BigInt(accDelta) },
       },
     });
     await tx.revenueDistribution.create({
       data: {
         campaignId,
-        amountPaise: unitsPaise,
+        amountCents: unitsCents,
         accRevenuePerUnitScaledAfter: updated.accRevenuePerUnitScaled,
       },
     });
   }
 
-  return { creatorPaise, platformPaise, unitsPaise };
+  return { creatorCents, platformCents, unitsCents };
 }
 
 export async function claimRevenue(userId: string, campaignId: string) {
@@ -600,7 +601,7 @@ export async function claimRevenue(userId: string, campaignId: string) {
       data: { lastClaimedAccRevenuePerUnitScaled: campaign.accRevenuePerUnitScaled },
     });
 
-    return { claimedPaise: claimable };
+    return { claimedCents: claimable };
   });
 }
 

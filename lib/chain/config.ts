@@ -54,20 +54,20 @@ export function explorerTxUrl(hash: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Money: the app prices everything in paise (₹); the chain settles in a USD
-// stablecoin with 6 decimals. One fixed rate converts between them, so the
+// Money: the app prices everything in US cents; the chain settles in a USD
+// stablecoin with 6 decimals, so 1 cent = 10,000 base units exactly and the
 // server and the browser always agree on a voucher's amount.
 // ---------------------------------------------------------------------------
 
-export const USD_INR_RATE = Number(process.env.NEXT_PUBLIC_USD_INR_RATE || 83);
-const UNITS_PER_USD = 1_000_000;
+const UNITS_PER_CENT = 10_000n;
 
-export function paiseToUnits(paise: number): bigint {
-  return BigInt(Math.round((paise / 100 / USD_INR_RATE) * UNITS_PER_USD));
+export function centsToUnits(cents: number): bigint {
+  return BigInt(Math.round(cents)) * UNITS_PER_CENT;
 }
 
-export function unitsToPaise(units: bigint): number {
-  return Math.round((Number(units) / UNITS_PER_USD) * USD_INR_RATE * 100);
+/** Rounds to the nearest cent (onchain splits can produce sub-cent amounts). */
+export function unitsToCents(units: bigint): number {
+  return Number((units + UNITS_PER_CENT / 2n) / UNITS_PER_CENT);
 }
 
 // ---------------------------------------------------------------------------

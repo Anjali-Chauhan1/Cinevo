@@ -42,7 +42,7 @@ export async function upsertWalletUser(opts: {
       },
     });
     // Balance is mirrored from the chain; it starts at zero.
-    await tx.ledgerAccount.create({ data: { userId: user.id, balancePaise: 0 } });
+    await tx.ledgerAccount.create({ data: { userId: user.id, balanceCents: 0 } });
     return user;
   });
 }

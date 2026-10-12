@@ -4,8 +4,8 @@
 // allowed values are documented above each field and enforced in application
 // code (see lib/validation.ts) rather than at the DB layer.
 //
-// All money fields are integer paise (1 rupee = 100 paise) to avoid floating
-// point drift in financial math. Display layers convert to rupees for the UI.
+// All money fields are integer cents (1 dollar = 100 cents) to avoid floating
+// point drift in financial math. Display layers convert to dollars for the UI.
 
 generator client {
   provider = "prisma-client-js"
@@ -104,7 +104,7 @@ model KycSubmission {
 // Demo ledger (replaces onchain Vault / token transfers)
 //
 // Every balance-affecting operation goes through lib/ledger/* which writes a
-// LedgerAccount.balancePaise update AND an immutable LedgerTransaction row in
+// LedgerAccount.balanceCents update AND an immutable LedgerTransaction row in
 // the SAME Prisma transaction — this is the equivalent of "settle in one
 // atomic tx" from the onchain design, and gives us a full audit trail.
 // ---------------------------------------------------------------------------
@@ -113,10 +113,10 @@ model LedgerAccount {
   id             String   @id @default(cuid())
   userId         String   @unique
   user           User     @relation(fields: [userId], references: [id])
-  balancePaise   Int      @default(0)
+  balanceCents   Int      @default(0)
   // Funds behind an open requestWithdraw() cooldown. Mirrors the onchain
   // 10-minute withdraw delay so a viewer can't drain a balance mid-session.
-  pendingWithdrawPaise Int @default(0)
+  pendingWithdrawCents Int @default(0)
   withdrawRequestedAt  DateTime?
   updatedAt      DateTime @updatedAt
 
@@ -132,7 +132,7 @@ model LedgerTransaction {
   // "MILESTONE_RELEASE_IN" | "REVENUE_CLAIM_IN" | "PLATFORM_FEE_IN" |
   // "WITHDRAW_REQUEST" | "WITHDRAW_COMPLETE" | "WITHDRAW_CANCEL" | "GRANT"
   type          String
-  amountPaise   Int      // signed: positive = credit, negative = debit
+  amountCents   Int      // signed: positive = credit, negative = debit
   balanceAfter  Int
   refType       String?  // "EPISODE" | "CAMPAIGN" | "SUBSCRIPTION" | "TIP" | ...
   refId         String?
@@ -161,7 +161,7 @@ model Creator {
   verificationStatus String  @default("PENDING")
   verificationNote  String?
   verificationDocUrl String?
-  subPriceRupeesPaise Int    @default(4900) // e.g. ₹49/month, stored as paise
+  subPriceCents Int    @default(499) // e.g. $4.99/month, stored as cents
   // Subscriber perks the creator chooses (Creator studio → Settings).
   // Premieres + early-access windows open to subscribers (else backers only).
   subEarlyAccess    Boolean  @default(true)
@@ -207,9 +207,9 @@ model Episode {
   castCredits     String?  // JSON array of {name, role}
 
   isPaid          Boolean  @default(false)
-  rateRupeesPaise Int      @default(0) // per-minute rate, paise; 10-200 paise band = ₹0.10-2.00
+  rateCents Int      @default(0) // per-minute rate, cents; 1-25 cents band = $0.01-0.25
   previewSeconds  Int      @default(120)
-  capRupeesPaise  Int      @default(1500)
+  capCents  Int      @default(200)
 
   premiereAt        DateTime?
   earlyAccessUntil  DateTime?
@@ -251,20 +251,20 @@ model WatchSession {
 
   // Pricing is snapshotted at session start so a creator changing price
   // mid-stream never retroactively changes what's owed for THIS session.
-  rateRupeesPaiseSnapshot Int
+  rateCentsSnapshot Int
   previewSecondsSnapshot  Int
-  capRupeesPaiseSnapshot  Int
+  capCentsSnapshot  Int
 
   // "NONE" | "SUBSCRIBER" | "BACKER_PASS" | "FREE_EPISODE" | "ALREADY_PAID"
   freeReason      String   @default("NONE")
 
-  cumulativeAmountPaise Int   @default(0) // highest voucher amount seen (monotonic)
+  cumulativeAmountCents Int   @default(0) // highest voucher amount seen (monotonic)
   lastVoucherAt   DateTime?
   secondsWatched  Int      @default(0)
 
   // "ACTIVE" | "SETTLED" | "EXPIRED"
   status          String   @default("ACTIVE")
-  settledAmountPaise Int?
+  settledAmountCents Int?
   settledAt       DateTime?
 
   startedAt       DateTime @default(now())
@@ -286,7 +286,7 @@ model EpisodeAccess {
   viewer         User     @relation(fields: [viewerId], references: [id])
   episodeId      String
   episode        Episode  @relation(fields: [episodeId], references: [id])
-  totalPaidPaise Int      @default(0)
+  totalPaidCents Int      @default(0)
   capReached     Boolean  @default(false)
   secondsWatched Int      @default(0)
   firstWatchedAt DateTime @default(now())
@@ -305,7 +305,7 @@ model Subscription {
   fan              User     @relation("FanSubscriptions", fields: [fanId], references: [id])
   creatorId        String
   creator          Creator  @relation("CreatorSubscriptions", fields: [creatorId], references: [id])
-  ratePerSecondPaiseScaled Int // ratePerMonth / (30*24*3600), scaled by 1e6 for precision
+  ratePerSecondCentsScaled Int // ratePerMonth / (30*24*3600), scaled by 1e6 for precision
   startedAt        DateTime @default(now())
   txHash           String?
   cancelledAt      DateTime?
@@ -332,7 +332,7 @@ model Tip {
   creator     Creator  @relation(fields: [creatorId], references: [id])
   episodeId   String?
   episode     Episode? @relation(fields: [episodeId], references: [id])
-  amountPaise Int
+  amountCents Int
   message     String?
   createdAt   DateTime @default(now())
   txHash      String?  @unique
@@ -353,25 +353,25 @@ model Campaign {
   filmTitle       String
   pitch           String?
   pitchVideoUrl   String?
-  goalPaise       Int
+  goalCents       Int
   deadline        DateTime
   deliveryDate    DateTime
   // "ACTIVE" | "FUNDED_PRODUCING" | "DELIVERED" | "FAILED_REFUNDING" | "REFUNDED" | "CANCELLED"
   status          String   @default("ACTIVE")
-  totalBackedPaise    Int  @default(0)
-  totalReleasedPaise  Int  @default(0) // escrow already paid out to creator
+  totalBackedCents    Int  @default(0)
+  totalReleasedCents  Int  @default(0) // escrow already paid out to creator
 
   // Producer Units economics (hidden entirely for non-permitted regions, see
   // lib/ledger/campaigns.ts — this is enforced server-side, not just in UI).
   producerUnitsEnabled Boolean @default(false)
   totalUnits           Int    @default(0)
-  // paise raised specifically via Producer Unit backings (excludes perk
+  // cents raised specifically via Producer Unit backings (excludes perk
   // pledges) — this is the principal the 120% recoupment threshold is based on.
-  unitsRaisedPaise     Int    @default(0)
-  // cumulative paise ever routed to the unit pool from viewer revenue, used
+  unitsRaisedCents     Int    @default(0)
+  // cumulative cents ever routed to the unit pool from viewer revenue, used
   // to detect the stage1 -> stage2 crossover (see distributeFilmRevenue).
-  revenueToUnitsPaise  Int    @default(0)
-  // accRevenuePerUnit scaled by 1e6 (paise-per-unit * 1e6), monotonically
+  revenueToUnitsCents  Int    @default(0)
+  // accRevenuePerUnit scaled by 1e6 (cents-per-unit * 1e6), monotonically
   // increasing; holders claim units * (acc - lastClaimed).
   accRevenuePerUnitScaled BigInt @default(0)
 
@@ -399,7 +399,7 @@ model CampaignTier {
   campaignId  String
   campaign    Campaign @relation(fields: [campaignId], references: [id])
   name        String
-  pricePaise  Int
+  priceCents  Int
   perks       String   // JSON array of strings
   backerLimit Int?
   backedCount Int      @default(0)
@@ -421,7 +421,7 @@ model Milestone {
   submittedAt    DateTime?
   reviewedAt     DateTime?
   reviewedBy     String?
-  releasedAmountPaise Int @default(0)
+  releasedAmountCents Int @default(0)
 
   @@unique([campaignId, order])
 }
@@ -436,7 +436,7 @@ model Backing {
   tier          CampaignTier? @relation(fields: [tierId], references: [id])
   // "PERK" | "PRODUCER_UNIT"
   type          String
-  amountPaise   Int
+  amountCents   Int
   unitsGranted  Int      @default(0)
   riskAcknowledged Boolean @default(false)
   riskAcknowledgedAt DateTime?
@@ -487,7 +487,7 @@ model RevenueDistribution {
   id            String   @id @default(cuid())
   campaignId    String
   campaign      Campaign @relation(fields: [campaignId], references: [id])
-  amountPaise   Int
+  amountCents   Int
   accRevenuePerUnitScaledAfter BigInt
   createdAt     DateTime @default(now())
 }
@@ -514,7 +514,7 @@ model HypeLevel {
   level          Int
   // "TIPS" | "REACTIONS"
   goalType       String
-  goalValue      Int      // paise if TIPS, count if REACTIONS
+  goalValue      Int      // cents if TIPS, count if REACTIONS
   unlockTitle    String
   unlockAssetUrl String?
   reachedAt      DateTime?
@@ -526,7 +526,7 @@ model HypeProgress {
   id               String   @id @default(cuid())
   episodeId        String   @unique
   episode          Episode  @relation(fields: [episodeId], references: [id])
-  tipTotalPaise    Int      @default(0)
+  tipTotalCents    Int      @default(0)
   reactionCount    Int      @default(0)
   lastLevelReached Int      @default(0)
 }
@@ -550,7 +550,7 @@ model ChatMessage {
   text        String
   // "MESSAGE" | "TIP_HIGHLIGHT" | "SYSTEM" | "POLL"
   type        String   @default("MESSAGE")
-  tipAmountPaise Int?
+  tipAmountCents Int?
   badges      String?  // JSON: {subscriberMonths, backerTier, verified}
   pinned      Boolean  @default(false)
   deleted     Boolean  @default(false)

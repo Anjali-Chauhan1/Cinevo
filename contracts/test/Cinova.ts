@@ -20,8 +20,8 @@ async function deployCinova() {
     admin.address,
     treasury.address,
     1000, // 10% platform fee
-    usd(0.001), // min rate per minute (~₹0.10)
-    usd(0.03), // max rate per minute (~₹2)
+    usd(0.001), // min rate per minute ($0.001)
+    usd(0.03), // max rate per minute ($0.03)
   ]);
   const vault = await ethers.deployContract("CinovaVault", [usdc, registry, WITHDRAW_DELAY]);
   const subscriptions = await ethers.deployContract("CinovaSubscriptions", [registry, vault]);
@@ -83,7 +83,7 @@ async function deployCinova() {
   };
 }
 
-/** Same deployment plus one paid episode: ₹0.50/min-ish rate, $0.20 cap. */
+/** Same deployment plus one paid episode: a cents-per-minute rate, $0.20 cap. */
 async function withPaidEpisode() {
   const f = await deployCinova();
   const episodeId = id("episode-4");
@@ -309,7 +309,7 @@ describe("CinovaVault — pay-per-minute", () => {
 describe("CinovaSubscriptions — per-second", () => {
   async function subscribed() {
     const f = await deployCinova();
-    await f.subscriptions.connect(f.creator).setMonthlyPrice(usd(3)); // ~₹249/month
+    await f.subscriptions.connect(f.creator).setMonthlyPrice(usd(3)); // $3/month
     await f.subscriptions.connect(f.viewer).subscribe(f.creator.address);
     return f;
   }
